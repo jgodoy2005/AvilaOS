@@ -17,7 +17,7 @@ public enum TipoProceso {
         this.nombre = nombre;
     }
     
-    public Boolean UsaBuffer(){
+    public Boolean usaBuffer(){
         return this == PRODUCTOR || this == CONSUMIDOR;  
     }
     
