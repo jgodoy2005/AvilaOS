@@ -15,7 +15,7 @@ public class DispositivoES implements ComponenteReloj {
     private final Cola<Solicitud> cola = new Cola<>();
     private Solicitud enCurso;
     
-    public void conectar(ManejadorInterrupciones manjeador) {
+    public void conectar(ManejadorInterrupciones manejador) {
         this.manejador = manejador;
     }
     
@@ -58,7 +58,7 @@ public class DispositivoES implements ComponenteReloj {
             .append(" (faltan ").append(enCurso.ciclosRestantes).append(")");
         }
         if (!cola.estaVacia()) {
-            texto.append(texto.length() > 0 ? " . " : "").append("en cola:");
+            texto.append(texto.length() > 0 ? " · " : "").append("en cola:");
             boolean primero = true;
             for (Solicitud s : cola.aArreglo(new Solicitud[cola.tamano()])){
                 texto.append(primero ? "" : " , ").append(s.proceso.etiqueta());

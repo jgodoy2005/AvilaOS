@@ -30,7 +30,7 @@ public class Memoria {
     
     public void liberar (int mb) {
         if (mb > usadaMB) {
-            throw new IllegalStateException("Se intento liberar" + mb + "MB"
+            throw new IllegalStateException("Se intento liberar " + mb + " MB "
                     + "pero solo hay " + usadaMB + " usados");
         }
         usadaMB -= mb;
