@@ -29,6 +29,10 @@ public class Kernel implements ManejadorInterrupciones{
     //define el costo en ciclos de reloj el costo de cambiar el proceso
     private static final int COSTO_DESPACHO = 1;
     
+    //controla que los procesos que no puedan terminarse nisiquiera en el mejor de los casos a causa de su
+    //ciclo limite (holgura), mueran o no 
+    private static final boolean ABORTAR_SI_INALCANZABLE = true;
+    
     // componentes de hardware asignados a este nucleo y modulos auxiliares
     private final int numero;
     private final String nombre;
@@ -113,16 +117,115 @@ public class Kernel implements ManejadorInterrupciones{
         }
     }
     
-    //antes de iniciar un ciclo, planifica, quien entra a memoria, quien toma la cpu
+    //antes de iniciar un ciclo, limpia vencidos, mete a memoria y le da la CPU a quien le toque
     public void antesDeEjecutar(long ciclo) {
         this.ciclo = ciclo;
         atenderDesbloqueos();     // despierta a los procesos que se acaban de desbloquear (los pasa a listos)
+        revisarDeadlines();       // limpia procesos vencidos o que ya no llegan a tiempo
         admitirNuevos();          // planificación a largo plazo
         planificar();             // planificación a corto plazo
     }
     
+    //control de deadlines y aplicacion de holgura para ahorrar recursos de CPU
     
+    //recorre todas las colas del sistema (nuevos, listos, bloqueados y CPU)
+    //separa en dos listas a los que deben morir para no modificar las colas mientras las recorre
+    private void revisarDeadlines() {
+        Cola<PCB> vencidos = new Cola<>();
+        Cola<PCB> inalcanzables = new Cola<>();
+        
+        nuevos.paraCada(p -> clasificar(p, vencidos, inalcanzables));
+        listos.paraCada(p -> clasificar(p, vencidos, inalcanzables));
+        bloqueados.paraCada(p -> clasificar(p, vencidos, inalcanzables));
+        if (enEjecucion != null) {
+            clasificar(enEjecucion, vencidos, inalcanzables);
+        }
+        
+        // Despues de revisar a todos, procede a sacarlos del sistema uno por uno
+        while (!vencidos.estaVacia()) {
+            abortarPorDeadline(vencidos.desencolar(), MotivoTerminacion.DEADLINE);
+        }
+        while (!inalcanzables.estaVacia()) {
+            abortarPorDeadline(inalcanzables.desencolar(), MotivoTerminacion.INALCANZABLE);
+        }
+    }
     
+    //evalua si un proceso se paso de su tiempo o si la holgura dice que ya no llega
+    private void clasificar(PCB p, Cola<PCB> vencidos, Cola<PCB> inalcanzables) {
+        if (ciclo >= p.getCicloLimite()) {
+            vencidos.encolar(p);
+        } else if (ABORTAR_SI_INALCANZABLE && ciclo + ciclosMinimosParaTerminar(p) > p.getCicloLimite()) {
+            inalcanzables.encolar(p);
+        }
+    }
+    
+    //CALCULOS PARA EL DEADLINE
+    //le pide los datos al PCB para calcular sus ciclos pendientes 
+    private int ciclosMinimosParaTerminar(PCB p) {
+        return ciclosMinimos(p.getTipo(), p.getPc(), p.getTotalInstrucciones(),
+                p.getCiclosEntreES(), p.getDuracionES(), p == enEjecucion);
+    }
+    
+    //calcula lo minimo que necesita un proceso para terminar suponiendo que nadie lo hace esperar(el mejor caso)
+    //es publico y estatico para que la interfaz pueda usar la misma cuenta al crearlo
+    public static int ciclosMinimos(TipoProceso tipo, int pc, int total, int cadaES, int duracionES, boolean enCPU) {
+        int restantes = Math.max(0, total - pc);
+        int es = esPendientes(tipo, pc, total, cadaES);
+        boolean terminaConES = es > 0 && total % cadaES == 0;
+        int entradas = (restantes > 0 && !enCPU ? 1 : 0) + es - (terminaConES ? 1 : 0);
+        return restantes + es * (Math.max(1, duracionES) - 1) + entradas * COSTO_DESPACHO;
+    }
+    
+    //cuenta cuantas E/S le quedan por solicitar segun en que instruccion (PC) va
+    private static int esPendientes(TipoProceso tipo, int pc, int total, int cadaES) {
+        if (tipo.usaBuffer() || cadaES <= 0) {
+            return 0;
+        }
+        return total / cadaES - pc / cadaES;
+    }
+    
+    //LIBERACION DE RECURSOS SI UN PROCESO NO SE PODRA TERMINAR
+    
+    //saca al proceso de la cola donde este, libera memoria/buffers y guarda la razon en el log
+    private void abortarPorDeadline(PCB p, MotivoTerminacion motivo) {
+        // Armamos el mensaje explicativo antes de sacarlo de CPU (si estaba ahi)
+        String porque;
+        if (motivo == MotivoTerminacion.DEADLINE) {
+            porque = "llegó a su ciclo límite (" + p.getCicloLimite() + ") sin terminar";
+        } else {
+            int es = esPendientes(p.getTipo(), p.getPc(), p.getTotalInstrucciones(), p.getCiclosEntreES());
+            porque = "deadline inalcanzable (le faltan " + p.getInstruccionesRestantes() + " instrucciones"
+                    + (es > 0 ? " y " + es + " E/S" : "") + ": necesita al menos " + ciclosMinimosParaTerminar(p)
+                    + " ciclos y solo quedan " + p.getDeadlineRestante(ciclo) + ")";
+        }
+        
+        //remueve el proceso de la cola en la que se encuentre actualmente
+        switch (p.getEstado()) {
+            case NUEVO -> nuevos.eliminar(p);
+            case LISTO -> listos.eliminar(p);
+            case BLOQUEADO -> {
+                bloqueados.eliminar(p);
+                if (p.getMotivoBloqueo() == MotivoBloqueo.ES) {
+                    dispositivo.cancelar(p);
+                }
+            }
+            case EJECUCION -> liberarCPU();
+            default -> {
+                return;
+            }
+        }
+        
+        //libera recursos consumidos y registra el evento
+        String devuelto = p.getBuffer() != null ? p.getBuffer().liberarRecursos(p) : "";
+        registrar("Proceso " + p.etiqueta() + " terminado: " + porque
+                + (p.getCicloPrimeraEjecucion() < 0 ? ", sin haber recibido la CPU" : "")
+                + (devuelto.isEmpty() ? "" : " (" + devuelto + ")"));
+        
+        finalizar(p, motivo);
+    }
+        
+        
+        
     //despues de ejecutar actualiza las estadisticas de los que esperan y si cambio la politica reordena
     public void despuesDeEjecutar(long ciclo) {
         this.ciclo = ciclo;
