@@ -138,6 +138,18 @@ public class Kernel implements ManejadorInterrupciones{
         }
     }
     
+    
+    //cambia la politica de planificacion, ordena segun la nueva politica y carga el registro para el log
+    //se aplica a partir del proximo ciclo
+    public void cambiarPolitica(TipoPolitica politica) {
+        if (politica == planificador.getPolitica().getTipo()) {
+            return;
+        }
+        planificador.setPolitica(politica.crear(parametros));
+        planificador.ordenar(listos);
+        registro.registrar(ciclo + 1, nombre + " cambia su política de planificación a " + politica);
+    }
+    
     //se le da la CPU a un proceso sumandole el costo del cambio de contexto
     private void despachar(PCB p) {
         p.pasarAEjecucion();
