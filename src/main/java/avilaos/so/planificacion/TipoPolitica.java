@@ -24,10 +24,14 @@ public enum TipoPolitica {
         this.nombre =nombre;
     }
   
+    
+    //metodo para llamar y aplicar cada politica disponible
     public PoliticaPlanificacion crear(Parametros parametros){
         return switch(this){
             case FCFS -> new PoliticaFCFS();
-            default -> throw new UnsupportedOperationException("Politica no implementada");
+            case ROUND_ROBIN -> new PoliticaRoundRobin(parametros);
+            case PRIORIDAD -> new PoliticaPrioridad();
+            case EDF -> new PoliticaEDF();
         };
     }
     
