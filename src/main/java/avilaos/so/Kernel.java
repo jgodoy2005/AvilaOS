@@ -5,6 +5,9 @@
 package avilaos.so;
 
 import avilaos.estructuras.Cola;
+import avilaos.estructuras.ColaSincronizada;
+import avilaos.so.sincronizacion.BufferAcotado;
+import avilaos.so.sincronizacion.SemaforoSO;
 import avilaos.hardware.CPU;
 import avilaos.hardware.ContextoEjecucion;
 import avilaos.hardware.DispositivoES;
@@ -15,6 +18,7 @@ import avilaos.so.planificacion.TipoPolitica;
 /**
  *
  * @author juandiegogodoy
+ * @coauthored by erick
  */
 
 //Falta implementar buffers y trato con procesos P/C
@@ -41,6 +45,8 @@ public class Kernel implements ManejadorInterrupciones{
     private final Cola<PCB> listos = new Cola<>();
     private final Cola<PCB> bloqueados = new Cola<>();
     private final Cola<PCB> terminados = new Cola<>();
+    //buzon seguro donde otros computadores dejan aviso cuando despiertan a uno de los procesos
+    private final ColaSincronizada<PCB> buzonDesbloqueos = new ColaSincronizada<>();
     
     //almacena el proceso que actualmente ocupa la CPU (null si esta ociosa)
     private PCB enEjecucion;
@@ -83,13 +89,34 @@ public class Kernel implements ManejadorInterrupciones{
     }
 
     
-    //esqueleto de metodo para procesos con buffer, avisando que se desbloqueo
-    public void notificarDesbloqueo(PCB proceso) {}
+    //buzon para notificar que un proceso fue desbloqueado
+    public void notificarDesbloqueo(PCB proceso) {
+        buzonDesbloqueos.encolar(proceso);
+    }
     
+    //revisa el buzon de desbloqueos al inicio de un ciclo y pasa a listos a 
+    //todos los procesos que fueron despertados
+    private void atenderDesbloqueos() {
+        Cola<PCB> despertados = buzonDesbloqueos.extraerTodos();
+        while (!despertados.estaVacia()) {
+            PCB p = despertados.desencolar();
+            
+            // si el proceso ya no esta en estado BLOQUEADO, ignoramos el aviso
+            if (p.getEstado() != EstadoProceso.BLOQUEADO) {
+                continue;
+            }
+            
+            bloqueados.eliminar(p);
+            pasarAListos(p);
+            registrar("Proceso " + p.etiqueta() + " despierta por un semSignal en el buffer "
+                    + p.getBuffer().getNombre() + " y pasa a listos");
+        }
+    }
     
     //antes de iniciar un ciclo, planifica, quien entra a memoria, quien toma la cpu
     public void antesDeEjecutar(long ciclo) {
         this.ciclo = ciclo;
+        atenderDesbloqueos();     // despierta a los procesos que se acaban de desbloquear (los pasa a listos)
         admitirNuevos();          // planificación a largo plazo
         planificar();             // planificación a corto plazo
     }
@@ -211,14 +238,14 @@ public class Kernel implements ManejadorInterrupciones{
 
     
     //atiende las peticiones del proceso de ejecucion al sistema
-    //solo esta implementado E/S
     @Override
     public void llamadaAlSistema(long ciclo) {
         this.ciclo = ciclo;
         PCB p = enEjecucion;
         p.registrarEjecucion(ciclo);
         TipoInstruccion operacion = p.instruccionActual();
-
+        
+        //manejo de una llamada de E/S, se bloquea el proceso, se solicita al dispositivoES y se registra para el log
         if (operacion == TipoInstruccion.SOLICITAR_ES) {
             p.avanzarPc();
             liberarCPU();
@@ -227,11 +254,54 @@ public class Kernel implements ManejadorInterrupciones{
             registrar("Proceso " + p.etiqueta() + " solicita E/S por " + p.getDuracionES() + " ciclos y se bloquea");
             return;
         }
-        throw new UnsupportedOperationException("Las operaciones de buffer todavía no están implementadas");
+        
+        //manejo de operaciones sobre el Buffer (productor/consumidor)
+        BufferAcotado buffer = p.getBuffer();
+        MotivoBloqueo motivo = buffer.ejecutarOperacion(p, operacion);
+        
+        //si fue una operacion de insertar o extraer se registra el progreso para el log
+        if (operacion == TipoInstruccion.INSERTAR || operacion == TipoInstruccion.EXTRAER) {
+            registrar("Proceso " + p.etiqueta() + " ejecuta " + operacion + " en " + buffer.getNombre()
+                    + textoOcupacion(operacion, buffer));
+        }
+        
+        
+        
+        //si no pudo completarse la operacion, el proceso libera la CPU y se bloquea, se registra para el log
+        if (motivo != null) {
+            liberarCPU();
+            bloquear(p, motivo);
+            registrarBloqueo(p, buffer, motivo);
+        } else if (p.haTerminadoInstrucciones()) {
+            //si la operacion fue exitosa y era su ultima instruccion, termina el proceso
+            liberarCPU();
+            finalizar(p, MotivoTerminacion.COMPLETADO);
+        }
     }
-
     
-    //Interrupcion del dispositivo E/S indicando al sistema que termino
+        //arma un mensaje para el registro cuando un proceso queda bloqueado en un semaforo del buffer
+        private void registrarBloqueo(PCB p, BufferAcotado buffer, MotivoBloqueo motivo) {
+            SemaforoSO semaforo;
+            String porque;
+            switch (motivo) {
+                case REGION_CRITICA -> { semaforo = buffer.getMutex(); porque = "región crítica ocupada"; }
+                case BUFFER_VACIO -> { semaforo = buffer.getLlenos(); porque = "buffer vacío"; }
+                default -> { semaforo = buffer.getVacios(); porque = "buffer lleno"; }
+            }
+            registrar("Proceso " + p.etiqueta() + " se bloquea en el semáforo '" + semaforo.getDescripcion() + "' ("
+                    + semaforo.getNombre() + ") del buffer " + buffer.getNombre() + ": " + porque);
+        }
+
+        
+        //si la operacion de buffer era añadir o extraer del buffer, devuelve la nueva capacidad del buffer para el registro
+        private String textoOcupacion(TipoInstruccion operacion, BufferAcotado buffer) {
+            if (operacion != TipoInstruccion.INSERTAR && operacion != TipoInstruccion.EXTRAER) {
+                return "";
+            }
+            return " (" + buffer.getCantidad() + "/" + buffer.getCapacidad() + ")";
+        }
+    
+    //interrupcion del dispositivo E/S indicando al sistema que termino
     @Override
     public void finDeES(ContextoEjecucion proceso, long ciclo) {
         this.ciclo = ciclo;
