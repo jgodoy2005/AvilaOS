@@ -13,11 +13,6 @@ import java.util.concurrent.Semaphore;
 /**
  *
  * @author juandiegogodoy
- */
-
-
-/**
- * 
  * @author erick
  * Buffer de capacidad limitada para productores y consumidores
  * Vive en la memoria de su computador anfitrion, pero lo pueden usar procesos de cualquier computador
@@ -34,9 +29,9 @@ public class BufferAcotado {
     
     private final String[] espacios;        //arreglo circular
     private int entra;                      // proxima posicion donde se anade
-    private int sale;                       // procima posicion donde se extrae
+    private int sale;                       // proxima posicion donde se extrae
     private int cantidad;
-    private final SemaforoSO s;             // mutex: exlcusion mutua sobre el buffer (empieza en 1)
+    private final SemaforoSO s;             // mutex: exclusion mutua sobre el buffer (empieza en 1)
     private final SemaforoSO n;             // llenos: elementos disponibles (empieza en 0)
     private final SemaforoSO e;             // vacios: espacios disponibles
     
@@ -52,8 +47,8 @@ public class BufferAcotado {
         this.capacidad = capacidad;
         this.numeroAnfitrion = numeroAnfitrion;
         this.espacios = new String[capacidad];
-        this.s = new SemaforoSO("s" , "mutex", 0, MotivoBloqueo.REGION_CRITICA);
-        this.n = new SemaforoSO("n" , "llenos", 1, MotivoBloqueo.BUFFER_VACIO);
+        this.s = new SemaforoSO("s" , "mutex", 1, MotivoBloqueo.REGION_CRITICA);
+        this.n = new SemaforoSO("n" , "llenos", 0, MotivoBloqueo.BUFFER_VACIO);
         this.e = new SemaforoSO("e", "vacios", capacidad, MotivoBloqueo.BUFFER_LLENO);
     }
     
@@ -89,7 +84,7 @@ public class BufferAcotado {
                   extraer(proceso);
                   return null;
               default:
-                  throw new IllegalArgumentException(operacion + "no es uuna operacion de buffer");
+                  throw new IllegalArgumentException(operacion + " no es una operacion de buffer");
           }
       } finally {
           candado.release();
@@ -103,13 +98,13 @@ public class BufferAcotado {
     private void senalar(SemaforoSO semaforo) {
         PCB despertado = semaforo.semSignal();
         if (despertado != null) {
-            despertado.getKernel().notificarDesbloqueo(despertado);// oden de candados: buffer -> buzon
+            despertado.getKernel().notificarDesbloqueo(despertado);// orden de candados: buffer -> buzon
         }
     }
     
     private void insertar(PCB proceso) {
         if (cantidad == capacidad) {
-            throw new IllegalStateException("Buffer " + nombre + "lleno: los semaforos debieron impedirlo");          
+            throw new IllegalStateException("Buffer " + nombre + " lleno: los semaforos debieron impedirlo");          
         }
         espacios[entra] = proceso.etiqueta() + '#' + (proceso.getElementosHechos() + 1);
         entra = (entra + 1) % capacidad;
@@ -120,7 +115,7 @@ public class BufferAcotado {
     
     private void extraer(PCB proceso) {
         if (cantidad == 0) {
-            throw new IllegalStateException("Buffer " + nombre + "vacio: los semaforos debieron impedirlo");
+            throw new IllegalStateException("Buffer " + nombre + " vacio: los semaforos debieron impedirlo");
         }
         espacios[sale] = null;
         sale = (sale + 1) % capacidad;
@@ -136,7 +131,7 @@ public class BufferAcotado {
             SemaforoSO enCola = proceso.getEsperandoEn();
             if (enCola != null) {
                 enCola.retirar(proceso);            // deshace el semWait que lo tenia esperando
-                devuelto.append(" sale de la cola de").append(enCola.getNombre()).append(";");
+                devuelto.append(" sale de la cola de ").append(enCola.getNombre()).append(";");
             }
             int k = proceso.getCiclosPorElemento();
             int o = proceso.getPc() % proceso.largoIteracion();     //proxima instruccion dentro del elemento
@@ -160,7 +155,7 @@ public class BufferAcotado {
             }
             if (reservaSinUsar) {
                 senalar(productor ? e : n);
-                devuelto.append(productor ? " devuelve un espacio (e);" : "devuelve un elemento (n);");
+                devuelto.append(productor ? " devuelve un espacio (e);" : " devuelve un elemento (n);");
             }
             if (senalPendiente) {
                 senalar(productor ? n : e);

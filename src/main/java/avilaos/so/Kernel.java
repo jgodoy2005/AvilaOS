@@ -18,11 +18,8 @@ import avilaos.so.planificacion.TipoPolitica;
 /**
  *
  * @author juandiegogodoy
- * @coauthored by erick
+ * @author erick
  */
-
-//Falta implementar buffers y trato con procesos P/C
-
 
 public class Kernel implements ManejadorInterrupciones{
     
@@ -120,11 +117,47 @@ public class Kernel implements ManejadorInterrupciones{
     //antes de iniciar un ciclo, limpia vencidos, mete a memoria y le da la CPU a quien le toque
     public void antesDeEjecutar(long ciclo) {
         this.ciclo = ciclo;
+        completarOperacionesRemotas(); // primero procesar mensajes de red que ya completaron su tiempo de viaje (para poder tomar en cuenta bloqueados por red)
         atenderDesbloqueos();     // despierta a los procesos que se acaban de desbloquear (los pasa a listos)
         revisarDeadlines();       // limpia procesos vencidos o que ya no llegan a tiempo
         admitirNuevos();          // planificación a largo plazo
         planificar();             // planificación a corto plazo
     }
+    
+    
+    //control de operaciones remotas en cluster
+    
+    //completar las operaciones de buffers remotos cuya latencia ya termino (terminaron su viaje)
+    //se aplican sobre el buffer del anfitrion pero las ejecuta este kernel (emisor)
+    private void completarOperacionesRemotas() {
+        //recorrer bloqueados por red, y revisar si la latencia de alguno llego a 0 para desbloquearlo
+        for (PCB p : bloqueados.aArreglo(new PCB[bloqueados.tamano()])) {
+            if (p.getMotivoBloqueo() != MotivoBloqueo.RED || p.descontarCicloDeRed() > 0) {
+                continue;
+            }
+            TipoInstruccion operacion = p.tomarOperacionRemota();
+            BufferAcotado buffer = p.getBuffer();
+            //una vez llega el mensaje se intenta ejecutar la operacion sobre el buffer
+            MotivoBloqueo motivo = buffer.ejecutarOperacion(p, operacion);
+            registrar("Llega al buffer " + buffer.getNombre() + " la operación " + operacion + " de "
+                    + p.etiqueta() + " (remota)" + textoOcupacion(operacion, buffer));
+            if (motivo != null) {
+                //llego el mensaje el buffer lo bloqueo por otro motivo
+                p.bloquear(motivo);
+                registrarBloqueo(p, buffer, motivo);
+            } else {
+                //la operacion fue exitosa, se elimina de bloqueados y pasa a listos
+                bloqueados.eliminar(p);
+                if (p.haTerminadoInstrucciones()) {
+                    finalizar(p, MotivoTerminacion.COMPLETADO);
+                } else {
+                    pasarAListos(p);
+                }
+            }
+        }
+    }
+    
+    
     
     //control de deadlines y aplicacion de holgura para ahorrar recursos de CPU
     
@@ -160,9 +193,14 @@ public class Kernel implements ManejadorInterrupciones{
     }
     
     //CALCULOS PARA EL DEADLINE
+    
     //le pide los datos al PCB para calcular sus ciclos pendientes 
     private int ciclosMinimosParaTerminar(PCB p) {
-        return ciclosMinimos(p.getTipo(), p.getPc(), p.getTotalInstrucciones(),
+        int pc = p.getPc();
+        if (p.getMotivoBloqueo() == MotivoBloqueo.RED) {
+            pc++; // La operación remota en camino ya no necesita CPU para mandarse a otro CPU, se suma para no tomarse en cuenta en el calculo
+        }
+        return ciclosMinimos(p.getTipo(), pc, p.getTotalInstrucciones(),
                 p.getCiclosEntreES(), p.getDuracionES(), p == enEjecucion);
     }
     
@@ -226,7 +264,7 @@ public class Kernel implements ManejadorInterrupciones{
         
         
         
-    //despues de ejecutar actualiza las estadisticas de los que esperan y si cambio la politica reordena
+    //despues de ejecutar actualiza las estadisticas de los que esperan y ordena segun la politica
     public void despuesDeEjecutar(long ciclo) {
         this.ciclo = ciclo;
         planificador.ordenar(listos);                // la interfaz ve la cola en el orden de la política
@@ -360,6 +398,21 @@ public class Kernel implements ManejadorInterrupciones{
         
         //manejo de operaciones sobre el Buffer (productor/consumidor)
         BufferAcotado buffer = p.getBuffer();
+        int latencia = parametros.getLatenciaRed();
+        
+        
+        //si es remoto (latencia >0)
+        if (buffer.getNumeroAnfitrion() != numero && latencia > 0) {
+            p.iniciarOperacionRemota(operacion, latencia); //guarda la instruccion y fija la latencia
+            liberarCPU();                                 //el proceso suelta el procesador
+            bloquear(p, MotivoBloqueo.RED);               //pasa a la cola de bloqueados por red
+            registrar("Proceso " + p.etiqueta() + " accede al buffer " + buffer.getNombre()
+                    + " de forma remota: " + operacion + " (latencia de " + latencia + " ciclos)");
+            return; // interrumpe la ejecución local
+        }
+        
+        
+        //si es acceso local (o acceso remoto con latencia 0)
         MotivoBloqueo motivo = buffer.ejecutarOperacion(p, operacion);
         
         //si fue una operacion de insertar o extraer se registra el progreso para el log
@@ -396,7 +449,7 @@ public class Kernel implements ManejadorInterrupciones{
         }
 
         
-        //si la operacion de buffer era añadir o extraer del buffer, devuelve la nueva capacidad del buffer para el registro
+        //si la operacion de buffer era añadir o extraer del buffer, devuelve la nueva ocupacion del buffer para el registro
         private String textoOcupacion(TipoInstruccion operacion, BufferAcotado buffer) {
             if (operacion != TipoInstruccion.INSERTAR && operacion != TipoInstruccion.EXTRAER) {
                 return "";
@@ -430,7 +483,7 @@ public class Kernel implements ManejadorInterrupciones{
 
     
     
-    // Procesos no finalizados pendientes de una CPU (para indicar en la interfaz)
+    // Procesos vivos en este computador, para poder ver cual esta mas 'libre'
     public int procesosActivos() {
         return nuevos.tamano() + listos.tamano() + bloqueados.tamano() + (enEjecucion != null ? 1 : 0);
     }
