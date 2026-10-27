@@ -3,7 +3,7 @@ package avilaos.gui;
 import avilaos.hardware.ModoCPU;
 import avilaos.simulacion.FotoComputador;
 import avilaos.simulacion.FotoPCB;
-import avilaos.so.simulacion.Simulacion;
+import avilaos.simulacion.Simulacion;
 import avilaos.so.planificacion.TipoPolitica;
 import java.awt.BorderLayout;
 import java.awt.Color;
