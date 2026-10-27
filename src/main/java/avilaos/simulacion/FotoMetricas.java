@@ -1,5 +1,5 @@
 package avilaos.simulacion;
-
+import avilaos.so.MetricasComputador;
 /**
  * Métricas de un computador (o del clúster completo) en un instante. Guarda
  * sumas y conteos, y calcula los promedios en sus métodos: así combinar varios
@@ -33,7 +33,6 @@ public record FotoMetricas(
         int terminadosPC = 0;
         long sumaRespuesta = 0, sumaRetorno = 0, sumaEspera = 0, sumaBloqueo = 0;
         double sumaX = 0, sumaX2 = 0;
-
         for (FotoMetricas m : partes) {
             ciclos = Math.max(ciclos, m.ciclos);
             ciclosCpu += m.ciclosCpu;
@@ -59,6 +58,18 @@ public record FotoMetricas(
         return new FotoMetricas(ciclos, ciclosCpu, ocupada, usuario, sistema,
             ventanaOcupados, ventana, completados, abortados, sinCPU, sumaRespuesta, conRespuesta,
             sumaRetorno, sumaEspera, sumaX, sumaX2, conX, sumaBloqueo, terminadosPC);
+    }
+    
+    public static FotoMetricas de(MetricasComputador m) {
+        return new FotoMetricas(m.getCiclos(), m.getCiclos(),
+        m.getCiclosOcupada(), m.getCiclosUsuario(),
+        m.getCiclosSistema(), m.getOcupadosEnVentana(),
+        m.getTamanoVentanaUsada(),
+        m.getCompletados(), m.getAbortados(), m.getSinCPU(),
+        m.getSumaRespuesta(), m.getConRespuesta(),
+        m.getSumaRetorno(), m.getSumaEspera(), m.getSumaX(),
+        m.getSumaX2(), m.getConX(),
+        m.getSumaBloqueoSemaforo(), m.getTerminadosPC());
     }
 
     public int terminados() {
