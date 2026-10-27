@@ -27,16 +27,16 @@ public class MetricasComputador {
     
     // Contadores de ciclos de CPU
     private long ciclos;
-    private long ciclosOcupados;
+    private long ciclosOcupada;
     private long ciclosUsuario;
     private long ciclosSistema;
     
     // Arreglo circular para rastrer a los ultimos N ciclos ejecutados
-    private boolean[] ventana = new boolean[VENTANA_UTILIZACION];
+    private final boolean[] ventana = new boolean[VENTANA_UTILIZACION];
     private int ocupadosEnVentana;
     
     // Contadores de procesos
-    private int compleados;
+    private int completados;
     private int abortados;
     private int sinCPU;     // Proceso abortado que sufrio inanicion total
     
@@ -53,7 +53,7 @@ public class MetricasComputador {
     // Registra el resultado del ciclo de reloj que acaba de ejecutar la CPU 
     public void registrarCiclo(boolean ocupada, ModoCPU modo) { 
         // mapeo circular para reutilizar la posicion del ciclo mas antiguo
-        int posicion = (int) (ciclos % ventan.length);
+        int posicion = (int) (ciclos % ventana.length);
         
         // Si la casilla a sobreescribir registraba ocupacion, la descontamos del total
         if (ventana[posicion]) {
@@ -64,10 +64,10 @@ public class MetricasComputador {
         ventana[posicion] = ocupada;
         
         if (ocupada) {
-            ocupadoEnVentana++;
+            ocupadosEnVentana++;
             ciclosOcupada++;
             
-            if (modo == ModoCPU.USUARIO0) {
+            if (modo == ModoCPU.USUARIO) {
                 ciclosUsuario++;
             } else {
                 ciclosSistema++;
@@ -81,7 +81,7 @@ public class MetricasComputador {
     // El tiempo de retorno contabiliza ambos extremos de la ventana temporal (+1)
     long retorno = p.getCicloFin() - p.getCicloCreacion() + 1;
     if (p.getMotivoTerminacion() == MotivoTerminacion.COMPLETADO) {
-        completado++;
+        completados++;
     } else {
         abortados++;
         if (p.getCicloPrimeraEjecucion() < 0) {
