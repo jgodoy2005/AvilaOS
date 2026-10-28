@@ -1,0 +1,17 @@
+{
+  "duracionCicloMs": 500,
+  "quantum": 4,
+  "latenciaRed": 3,
+  "computadores": [
+    {
+      "ramMB": 1024,
+      "politica": "FCFS"
+    },
+    {
+      "ramMB": 1024,
+      "politica": "ROUND_ROBIN"
+    }
+  ],
+  "buffers": [],
+  "procesos": []
+}
