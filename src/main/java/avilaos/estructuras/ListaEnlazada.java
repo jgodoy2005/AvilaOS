@@ -152,7 +152,7 @@ public class ListaEnlazada<T> {
 
     public T[] aArreglo(T[] destino) {
         if (destino.length < tamano) {
-            throw new IllegalArgumentException(" El arreglo necesita " + tamano + "posiciones");
+            throw new IllegalArgumentException("El arreglo necesita " + tamano + " posiciones");
         }
         int i = 0;
         for (Nodo<T> n = cabeza; n !=null; n = n.siguiente) {

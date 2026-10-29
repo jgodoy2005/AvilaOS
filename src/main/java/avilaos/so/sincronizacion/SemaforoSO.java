@@ -99,7 +99,7 @@ MotivoBloqueo motivo ) {
     
     @Override
     public String toString() {
-        return nombre + "(" + descripcion + ")";
+        return nombre + " (" + descripcion + ")";
     }
 }
 

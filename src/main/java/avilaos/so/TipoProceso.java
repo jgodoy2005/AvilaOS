@@ -9,7 +9,7 @@ package avilaos.so;
  * @author juandiegogodoy
  */
 public enum TipoProceso {
-    CPU_BOUND("CPU bound"), IO_BOUND("I/O bound"), PRODUCTOR("Productor"), CONSUMIDOR("consumidor");
+    CPU_BOUND("CPU bound"), IO_BOUND("I/O bound"), PRODUCTOR("Productor"), CONSUMIDOR("Consumidor");
     
     private final String nombre;
     
