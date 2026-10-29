@@ -44,8 +44,7 @@ public class Planificador {
     public boolean debeExpulsar(PCB enEjecucion, Cola<PCB> listos, int ciclosEnRafaga){
         ordenar(listos);
         PCB primero = listos.verPrimero();
-        return enEjecucion == null && primero!=null && politica.debeExpulsar(enEjecucion, primero, ciclosEnRafaga);
-        
+        return enEjecucion != null && primero != null && politica.debeExpulsar(enEjecucion, primero, ciclosEnRafaga);        
             
     }
     

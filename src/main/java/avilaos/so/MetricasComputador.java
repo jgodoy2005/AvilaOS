@@ -5,15 +5,7 @@
 package avilaos.so;
 import avilaos.hardware.ModoCPU;
 /**
- *
- * @author juandiegogodoy
- */
-
-/*
-ESQUELETO PARA LAS METRICAS
-*/
-
-/*
+@author juandiegogodoy
 @author erick
 contabilidad individual de un computador.
 registra exclusivamente sumas y conteos (nunca promedios) para permitir
@@ -82,6 +74,7 @@ public class MetricasComputador {
     long retorno = p.getCicloFin() - p.getCicloCreacion() + 1;
     if (p.getMotivoTerminacion() == MotivoTerminacion.COMPLETADO) {
         completados++;
+        sumaRetorno += retorno; 
     } else {
         abortados++;
         if (p.getCicloPrimeraEjecucion() < 0) {
