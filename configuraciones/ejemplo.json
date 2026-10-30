@@ -10,8 +10,117 @@
     {
       "ramMB": 1024,
       "politica": "ROUND_ROBIN"
+    },
+    {
+      "ramMB": 512,
+      "politica": "EDF"
     }
   ],
-  "buffers": [],
-  "procesos": []
+  "buffers": [
+    {
+      "capacidad": 4,
+      "anfitrion": 1
+    },
+    {
+      "capacidad": 3,
+      "anfitrion": 2
+    }
+  ],
+  "procesos": [
+    {
+      "nombre": "Compilador",
+      "tipo": "CPU_BOUND",
+      "instrucciones": 60,
+      "memoriaMB": 256,
+      "prioridad": 3,
+      "deadline": 400,
+      "ciclosEntreES": 0,
+      "duracionES": 0,
+      "ciclosPorElemento": 0,
+      "elementos": 0,
+      "computador": 1
+    },
+    {
+      "nombre": "Editor",
+      "tipo": "IO_BOUND",
+      "instrucciones": 30,
+      "memoriaMB": 128,
+      "prioridad": 2,
+      "deadline": 300,
+      "ciclosEntreES": 3,
+      "duracionES": 5,
+      "ciclosPorElemento": 0,
+      "elementos": 0,
+      "computador": 1
+    },
+    {
+      "nombre": "Sensor",
+      "tipo": "PRODUCTOR",
+      "instrucciones": 0,
+      "memoriaMB": 64,
+      "prioridad": 4,
+      "deadline": 600,
+      "ciclosEntreES": 0,
+      "duracionES": 0,
+      "buffer": "B1",
+      "ciclosPorElemento": 2,
+      "elementos": 12,
+      "computador": 1
+    },
+    {
+      "nombre": "Monitor",
+      "tipo": "CONSUMIDOR",
+      "instrucciones": 0,
+      "memoriaMB": 64,
+      "prioridad": 4,
+      "deadline": 600,
+      "ciclosEntreES": 0,
+      "duracionES": 0,
+      "buffer": "B1",
+      "ciclosPorElemento": 3,
+      "elementos": 12,
+      "computador": 2
+    },
+    {
+      "nombre": "Respaldo",
+      "tipo": "PRODUCTOR",
+      "instrucciones": 0,
+      "memoriaMB": 64,
+      "prioridad": 5,
+      "deadline": 500,
+      "ciclosEntreES": 0,
+      "duracionES": 0,
+      "buffer": "B2",
+      "ciclosPorElemento": 1,
+      "elementos": 8,
+      "computador": 3
+    },
+    {
+      "nombre": "Archivador",
+      "tipo": "CONSUMIDOR",
+      "instrucciones": 0,
+      "memoriaMB": 64,
+      "prioridad": 5,
+      "deadline": 500,
+      "cicl osEntreES": 0,
+      "duracionES": 0,
+      "buffer": "B2",
+      "ciclosPorElemento": 2,
+      "elementos": 8,
+      "computador": 2
+    },
+    {
+      "nombre": "Grande",
+      "tipo": "CPU_BOUND",
+      "instrucciones": 20,
+      "memoriaMB": 900,
+      "prioridad": 6,
+      "deadline": 800,
+      "ciclosEntreES": 0,
+      "duracionES": 0,
+      "ciclosPorElemento": 0,
+      "elementos": 0,
+      "computador": 0
+    }
+  ]
 }

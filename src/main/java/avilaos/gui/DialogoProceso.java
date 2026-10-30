@@ -22,13 +22,17 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
 /**
- * Vista 1: formulario para crear un proceso. Según el tipo, muestra los campos de
- * cálculo/E-S o los de productor/consumidor. Valida todo antes de aceptar.
+ * Vista 1: formulario para crear un proceso. Según el tipo, muestra los campos
+ * de cálculo/E-S o los de productor/consumidor. Valida todo antes de aceptar.
  */
 public class DialogoProceso extends JDialog {
+
     private static final String AUTOMATICO = "Automático (menor carga)";
 
-    /** El deadline sugerido es este múltiplo del mínimo, para dejar margen si el proceso espera turno. */
+    /**
+     * El deadline sugerido es este múltiplo del mínimo, para dejar margen si el
+     * proceso espera turno.
+     */
     private static final int VECES_EL_MINIMO = 3;
 
     private final JTextField nombre = new JTextField("Proceso", 14);
@@ -70,7 +74,7 @@ public class DialogoProceso extends JDialog {
         }
 
         modeloComputador = new ModeloLista<>(opcionesComputador);
-        modeloBuffer = new ModeloLista<>(buffers.length == 0 ? new String[] {"(no hay buffers)"} : buffers);
+        modeloBuffer = new ModeloLista<>(buffers.length == 0 ? new String[]{"(no hay buffers)"} : buffers);
 
         JPanel comunes = Formato.formulario();
         Formato.fila(comunes, 0, "Nombre:", nombre);
@@ -103,16 +107,27 @@ public class DialogoProceso extends JDialog {
         tipo.addActionListener(e -> cambiarTipo());
 
         DocumentListener recalcular = new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent e) { actualizarCalculos(); }
-            @Override public void removeUpdate(DocumentEvent e) { actualizarCalculos(); }
-            @Override public void changedUpdate(DocumentEvent e) { actualizarCalculos(); }
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                actualizarCalculos();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                actualizarCalculos();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                actualizarCalculos();
+            }
         };
 
-        for (JTextField campo : new JTextField[] {instrucciones, ciclosEntreES, duracionES, ciclosPorElemento, elementos}) {
+        for (JTextField campo : new JTextField[]{instrucciones, ciclosEntreES, duracionES, ciclosPorElemento, elementos}) {
             campo.getDocument().addDocumentListener(recalcular);
         }
 
-        actualizarCalculos();
+        cambiarTipo();
 
         JButton crear = new JButton("Crear");
         JButton cancelar = new JButton("Cancelar");
@@ -137,6 +152,7 @@ public class DialogoProceso extends JDialog {
 
     /**
      * Muestra el diálogo y espera.
+     *
      * @return los datos del proceso, o null si el usuario canceló
      */
     public static DatosProceso pedir(Component padre, int cantidadComputadores, String[] buffers, boolean permitirAutomatico) {
@@ -150,11 +166,28 @@ public class DialogoProceso extends JDialog {
         TipoProceso t = (TipoProceso) modeloTipo.getSelectedItem();
         tarjetas.show(panelSegunTipo, t.usaBuffer() ? "buffer" : "calculo");
         switch (t) {
-            case CPU_BOUND -> { ciclosEntreES.setText("0"); duracionES.setText("3"); instrucciones.setText("40"); }
-            case IO_BOUND -> { ciclosEntreES.setText("3"); duracionES.setText("5"); instrucciones.setText("30"); }
-            case PRODUCTOR -> { ciclosPorElemento.setText("2"); elementos.setText("10"); }
-            case CONSUMIDOR -> { ciclosPorElemento.setText("3"); elementos.setText("10"); }
+            case CPU_BOUND -> {
+                ciclosEntreES.setText("0");
+                duracionES.setText("3");
+                instrucciones.setText("40");
+            }
+            case IO_BOUND -> {
+                ciclosEntreES.setText("3");
+                duracionES.setText("5");
+                instrucciones.setText("30");
+            }
+            case PRODUCTOR -> {
+                ciclosPorElemento.setText("2");
+                elementos.setText("10");
+            }
+            case CONSUMIDOR -> {
+                ciclosPorElemento.setText("3");
+                elementos.setText("10");
+            }
         }
+        boolean pideES = t == TipoProceso.IO_BOUND;   // un CPU bound no pide E/S
+        ciclosEntreES.setEnabled(pideES);
+        duracionES.setEnabled(pideES);
         actualizarCalculos();
     }
 
@@ -233,7 +266,8 @@ public class DialogoProceso extends JDialog {
             datos = DatosProceso.deBuffer(n, t, buffer, k, m, mem, prio, dl, computador);
         } else {
             int ins = v.entero(instrucciones, "La cantidad de instrucciones", Limites.INSTRUCCIONES_MIN, Limites.INSTRUCCIONES_MAX);
-            int cada = v.entero(ciclosEntreES, "La frecuencia de E/S", Limites.CICLOS_ENTRE_ES_MIN, Limites.CICLOS_ENTRE_ES_MAX);
+            int minimoES = t == TipoProceso.IO_BOUND ? 1 : Limites.CICLOS_ENTRE_ES_MIN;   // un I/O bound debe pedir E/S
+            int cada = v.entero(ciclosEntreES, "La frecuencia de E/S", minimoES, Limites.CICLOS_ENTRE_ES_MAX);
             int dur = v.entero(duracionES, "La duración de la E/S", Limites.DURACION_ES_MIN, Limites.DURACION_ES_MAX);
             datos = DatosProceso.deCalculo(n, t, ins, mem, prio, dl, cada, dur, computador);
         }
@@ -261,16 +295,16 @@ public class DialogoProceso extends JDialog {
         boolean conES = !datos.tipo().usaBuffer() && datos.ciclosEntreES() > 0 && total >= datos.ciclosEntreES();
         int respuesta = JOptionPane.showConfirmDialog(this,
                 "Con un deadline de " + datos.deadline() + " ciclos, este proceso no alcanza a terminar aunque tenga\n"
-                        + "la CPU" + (conES ? " y el dispositivo libres" : " libre") + ": necesita al menos " + minimo + " ciclos\n"
-                        + "(el despacho, sus " + total + " instrucciones" + (conES ? " y sus E/S" : "") + ").\n"
-                        + "El sistema lo va a terminar apenas llegue, por deadline inalcanzable. ¿Crearlo igual?",
+                + "la CPU" + (conES ? " y el dispositivo libres" : " libre") + ": necesita al menos " + minimo + " ciclos\n"
+                + "(el despacho, sus " + total + " instrucciones" + (conES ? " y sus E/S" : "") + ").\n"
+                + "El sistema lo va a terminar apenas llegue, por deadline inalcanzable. ¿Crearlo igual?",
                 "Deadline inalcanzable", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         return respuesta == JOptionPane.YES_OPTION;
     }
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            DatosProceso datos = DialogoProceso.pedir(null, 2, new String[] {"B1"}, true);
+            DatosProceso datos = DialogoProceso.pedir(null, 2, new String[]{"B1"}, true);
             System.out.println(datos == null ? "Cancelado" : datos);
         });
     }
