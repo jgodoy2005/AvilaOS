@@ -102,7 +102,7 @@
       "memoriaMB": 64,
       "prioridad": 5,
       "deadline": 500,
-      "cicl osEntreES": 0,
+      "ciclosEntreES": 0,
       "duracionES": 0,
       "buffer": "B2",
       "ciclosPorElemento": 2,

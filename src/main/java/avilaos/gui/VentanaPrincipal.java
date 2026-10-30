@@ -19,7 +19,7 @@ import javax.swing.SwingUtilities;
 
 
 
-/**
+/*
  * Ventana principal: pestañas de Configuración, Simulación (Vista 2) y
  * Métricas. Observa a la simulación: en cada ciclo recibe un aviso desde el
  * hilo del reloj y redibuja en el hilo de Swing. La lógica de ÁvilaOS no vive
@@ -33,7 +33,7 @@ public class VentanaPrincipal extends JFrame implements ObservadorSimulacion {
     private Simulacion simulacion;
 
     public VentanaPrincipal() {
-        super("ÁvilaOS — Simulador de un sistema operativo distribuido");
+        super("AvilaOS");
         pestanas.addTab("Configuración", new PanelConfiguracion(this::iniciarSimulacion));
         pestanas.addTab("Simulación", aviso(
         "Configure e inicie una simulación en la pestaña Configuración."));
@@ -52,7 +52,7 @@ add(pestanas, BorderLayout.CENTER);
         setLocationRelativeTo(null);
     }
 
-    /**
+    /*
      * Crea una simulación nueva con la configuración dada (si había otra, la
      * detiene).
      */
@@ -72,7 +72,7 @@ add(pestanas, BorderLayout.CENTER);
         try {
             nueva = new Simulacion(config, false);
         } catch (IllegalArgumentException e) {
-            JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudoiniciar", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudo iniciar", JOptionPane.WARNING_MESSAGE);
         return;
         }
         TipoPolitica[] politicas = new TipoPolitica[config.computadores().length];
@@ -90,7 +90,7 @@ add(pestanas, BorderLayout.CENTER);
         pestanas.setSelectedIndex(1);
     }
 
-    /**
+    /*
      * Lo llama el hilo del reloj al final de cada ciclo. Swing no permite
      * dibujar desde otro hilo, así que le pide el dibujo al hilo de Swing con
      * invokeAndWait y espera a que termine. Por eso el reloj nunca adelanta a
@@ -108,7 +108,7 @@ add(pestanas, BorderLayout.CENTER);
         }
     }
 
-    /**
+    /*
      * Hilo de Swing: dibuja la última foto de la simulación actual y los
      * eventos nuevos.
      */

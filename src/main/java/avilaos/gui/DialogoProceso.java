@@ -301,11 +301,4 @@ public class DialogoProceso extends JDialog {
                 "Deadline inalcanzable", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         return respuesta == JOptionPane.YES_OPTION;
     }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            DatosProceso datos = DialogoProceso.pedir(null, 2, new String[]{"B1"}, true);
-            System.out.println(datos == null ? "Cancelado" : datos);
-        });
-    }
 }
