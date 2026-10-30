@@ -132,14 +132,14 @@ public class PanelSimulacion extends JPanel {
         FotoMetricas g = f.global();
         resumen.setText("Sistema completo: utilización "
                 + Formato.porcentaje(g.utilizacion())
-                + " (útil " + Formato.porcentaje(g.utilizacionUsuario()) + ")· completados " + g.completados()
-+ " · abortados " + g.abortados() + " · deadlinescumplidos " + Formato.porcentaje(g.tasaDeadlines())
-+ " · throughput " + Formato.decimal(g.throughput()) + "por 100 ciclos"
-+ " · respuesta promedio " +
-(Double.isNaN(g.respuestaPromedio()) ? "—"
-                : Formato.decimal(g.respuestaPromedio()) + "ciclos"));
-}
-public void agregarEventos(Cola<String> eventos) {
+                + " (útil " + Formato.porcentaje(g.utilizacionUsuario()) + ") · completados " + g.completados()
+                + " · abortados " + g.abortados() + " · deadlines cumplidos " + Formato.porcentaje(g.tasaDeadlines())
+                + " · throughput " + Formato.decimal(g.throughput()) + " por 100 ciclos"
+                + " · respuesta promedio "
+                + (Double.isNaN(g.respuestaPromedio()) ? "—" : Formato.decimal(g.respuestaPromedio()) + " ciclos"));
+    }
+
+    public void agregarEventos(Cola<String> eventos) {
         log.agregar(eventos);
     }
 
@@ -164,16 +164,14 @@ public void agregarEventos(Cola<String> eventos) {
             String creado = simulacion.crearProceso(datos);
             estado.setText("Se creó " + creado);
         } catch (IllegalArgumentException e) {
-            JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudocrear el proceso",
-JOptionPane.WARNING_MESSAGE
-        
-    
+            JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudo crear el proceso",
+                    JOptionPane.WARNING_MESSAGE
+            );
 
-    );
+        }
+    }
 
-}
-}
-private void crearBuffer() {
+    private void crearBuffer() {
         ConfigBuffer datos = DialogoBuffer.pedir(this, computadores.length);
         if (datos == null) {
             return;
@@ -190,17 +188,16 @@ private void crearBuffer() {
             estado.setText("Se creó el buffer " + nombre);
         } catch (IllegalArgumentException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudo crear el buffer",
-JOptionPane.WARNING_MESSAGE
-        
-    
+                    JOptionPane.WARNING_MESSAGE
+            );
+        }
+    }
 
-    );
-}
-}
-
-/** Un JSpinner numérico: solo acepta enteros dentro del rango
-(validación de tipo y rango). */
-static JSpinner spinner(int valor, int min, int max, int paso) {
+    /**
+     * Un JSpinner numérico: solo acepta enteros dentro del rango (validación de
+     * tipo y rango).
+     */
+    static JSpinner spinner(int valor, int min, int max, int paso) {
         JSpinner spinner = new JSpinner(new SpinnerNumberModel(valor, min,
                 max, paso));
         JFormattedTextField campo = ((JSpinner.DefaultEditor) spinner.getEditor()).getTextField();

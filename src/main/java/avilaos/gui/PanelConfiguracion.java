@@ -73,7 +73,7 @@ public class PanelConfiguracion extends JPanel {
         Formato.fila(parametros, 3, "Latencia de red (ciclos):", latencia);
 
         parametros.setBorder(BorderFactory.createTitledBorder("Parámetros generales"));
-cantidad.addChangeListener(e
+        cantidad.addChangeListener(e
                 -> modeloComputadores.redimensionar((Integer) cantidad.getValue()));
 
         JTable tablaComputadores = new JTable(modeloComputadores);
@@ -83,9 +83,9 @@ cantidad.addChangeListener(e
         JScrollPane scrollComputadores = new JScrollPane(tablaComputadores);
 
         scrollComputadores.setBorder(BorderFactory.createTitledBorder(
-        "Computadores(doble clic para editar)"));
+                "Computadores (doble clic para editar)"));
 
-JPanel izquierda = new JPanel(new BorderLayout(8, 8));
+        JPanel izquierda = new JPanel(new BorderLayout(8, 8));
         izquierda.add(parametros, BorderLayout.NORTH);
         izquierda.add(scrollComputadores, BorderLayout.CENTER);
 
@@ -123,8 +123,8 @@ JPanel izquierda = new JPanel(new BorderLayout(8, 8));
         iniciar.addActionListener(e -> iniciar());
         JPanel botones = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
         botones.add(new JLabel(
-        "La simulación arranca en pausa: use\"Reanudar\" en la pestaña Simulación. "));
-botones.add(cargar);
+                "La simulación arranca en pausa: use \"Reanudar\" en la pestaña Simulación. "));
+        botones.add(cargar);
         botones.add(guardar);
         botones.add(iniciar);
 
@@ -230,13 +230,13 @@ botones.add(cargar);
         }
         try {
             mostrarConfiguracion(ArchivoConfiguracion.cargar(selector.getSelectedFile().toPath()));
-} catch (IOException | IllegalArgumentException e) {
+        } catch (IOException | IllegalArgumentException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudo cargar el archivo",
                     JOptionPane.WARNING_MESSAGE);
-}
-}
+        }
+    }
 
-private void guardarArchivo() {
+    private void guardarArchivo() {
         ConfiguracionSimulacion config;
         try {
             config = leer();
@@ -260,15 +260,15 @@ private void guardarArchivo() {
                     + archivo.getAbsolutePath());
         } catch (IOException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudo guardar", JOptionPane.WARNING_MESSAGE);
-}
-}
+        }
+    }
 
-private JFileChooser selectorDeArchivos() {
+    private JFileChooser selectorDeArchivos() {
         File carpeta = new File("configuraciones");
         JFileChooser selector = new JFileChooser(carpeta.isDirectory()
                 ? carpeta : new File("."));
-        selector.setFileFilter(new FileNameExtensionFilter("Configuración de ÁvilaOS( *.json)", "json"));
-return selector;
+        selector.setFileFilter(new FileNameExtensionFilter("Configuracion de AvilaOS (*.json)", "json"));
+        return selector;
     }
 
     private static JPanel seccion(String titulo, JScrollPane tabla,
@@ -293,11 +293,11 @@ return selector;
             case 2 ->
                 "Computador " + b.anfitrion();
             default ->
-                (b.capacidad() * BufferAcotado.MB_POR_ESPACIO) + "MB";
-};
-}
+                (b.capacidad() * BufferAcotado.MB_POR_ESPACIO) + " MB";
+        };
+    }
 
-private String nombreDeBuffer(ConfigBuffer b) {
+    private String nombreDeBuffer(ConfigBuffer b) {
         ConfigBuffer[] todos = buffers.aArreglo(new ConfigBuffer[buffers.tamano()]);
         for (int i = 0; i < todos.length; i++) {
             if (todos[i] == b) {
@@ -398,7 +398,7 @@ private String nombreDeBuffer(ConfigBuffer b) {
             return switch (columna) {
                 case 1 ->
                     Integer.class; // JTable solo acepta enteros en esta columna
-case 2 ->
+                case 2 ->
                     TipoPolitica.class;
                 default ->
                     String.class;
