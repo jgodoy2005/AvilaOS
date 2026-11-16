@@ -3,7 +3,7 @@ target/
 nbproject/private/
 nb-configuration.xml
 nbactions.xml
-
+src/main/java/avilaos/pruebas/
 
 .DS_Store
 Thumbs.db

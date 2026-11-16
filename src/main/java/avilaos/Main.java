@@ -1,20 +1,27 @@
 package avilaos;
 
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.SwingConstants;
+import avilaos.gui.VentanaPrincipal;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 
 public class Main {
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
-            JFrame ventana = new JFrame("ÁvilaOS");
-            ventana.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            ventana.add(new JLabel("ÁvilaOS arrancó con Java " + System.getProperty("java.version"),
-                    SwingConstants.CENTER));
-            ventana.setSize(420, 160);
-            ventana.setLocationRelativeTo(null);
-            ventana.setVisible(true);
+            usarAparienciaNimbus();
+            new VentanaPrincipal().setVisible(true);
         });
+    }
+
+    private static void usarAparienciaNimbus() {
+        try {
+            for (UIManager.LookAndFeelInfo info : UIManager.getInstalledLookAndFeels()) {
+                if ("Nimbus".equals(info.getName())) {
+                    UIManager.setLookAndFeel(info.getClassName());
+                    return;
+                }
+            }
+        } catch (ReflectiveOperationException | javax.swing.UnsupportedLookAndFeelException e) {
+            // Usa la apariencia por defecto si falla
+        }
     }
 }
