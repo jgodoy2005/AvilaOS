@@ -6,7 +6,10 @@ public record FotoSimulacion(
     boolean pausada,
     FotoComputador[] computadores,
     FotoBuffer[] buffers,
-    FotoMetricas global) {
+    FotoMetricas global,
+    FotoDisco disco,
+    FotoNodo arbol,          //sistema de archivos para el JTree (sin lo que todavia se esta creando)
+    FotoArchivo[] tabla) {   //tabla de asignacion de archivos
 
     /** Nombres de los buffers, para los menús de la interfaz. */
     public String[] nombresBuffers() {

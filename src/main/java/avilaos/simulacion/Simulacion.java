@@ -240,7 +240,8 @@ public final class Simulacion implements ObservadorReloj {
         for (int i = 0; i < buffers.length; i++) {
             fotosBuffers[i] = fotografiar(buffers[i], fotos);
         }
-        return new FotoSimulacion(ciclo, reloj.isPausado(), fotos, fotosBuffers, FotoMetricas.combinar(metricas));
+        return new FotoSimulacion(ciclo, reloj.isPausado(), fotos, fotosBuffers, FotoMetricas.combinar(metricas),
+                null, null, new FotoArchivo[0]);   //disco, arbol y tabla: los llena Procesos 3
     }
 
     
