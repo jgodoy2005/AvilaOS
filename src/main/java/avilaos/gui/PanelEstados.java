@@ -177,6 +177,7 @@ public class PanelEstados extends JComponent {
             String donde = p.buffer().isEmpty() ? "" : " " + p.buffer();
             return p.etiqueta() + " " + switch (p.motivoBloqueo()) {
                 case ES -> "E/S";
+                case ES_DISCO -> "disco";
                 case RED -> "red" + donde;
                 case REGION_CRITICA -> "s" + donde;
                 case BUFFER_VACIO -> "n" + donde;

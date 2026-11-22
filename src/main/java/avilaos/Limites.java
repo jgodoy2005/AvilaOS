@@ -12,9 +12,9 @@ public final class Limites {
     
     private Limites(){
     }
-    
-    public static final int COMPUTADORES_MIN = 2; //rango de computadores del cluster
-    public static final int COMPUTADORES_MAX = 8;
+    //Se trabaja con un solo computador: el cluster queda con exactamente uno
+    public static final int COMPUTADORES_MIN = 1; //rango de computadores del cluster
+    public static final int COMPUTADORES_MAX = 1;
     
     public static final int RAM_MIN_MB = 128; //rango de ram de un computador
     public static final int RAM_MAX_MB = 65536;
@@ -56,5 +56,28 @@ public final class Limites {
     
     public static final int CAPACIDAD_BUFFER_MIN = 1; // rango de espacios de un buffer
     public static final int CAPACIDAD_BUFFER_MAX = 100;
+    
+    
+    //NUEVOS PARA EL PROYECTO 2: disco, swap, usuarios y archivos
+
+    public static final int BLOQUES_DISCO_MIN = 100; //rango de bloques de la zona de archivos del disco
+    public static final int BLOQUES_DISCO_MAX = 500;
+
+    public static final int SWAP_MIN = 0; //rango de bloques de la zona de intercambio (swap)
+    public static final int SWAP_MAX = 500;
+
+    public static final int VELOCIDAD_CABEZAL_MIN = 1; //rango de posiciones que recorre el cabezal por ciclo
+    public static final int VELOCIDAD_CABEZAL_MAX = 50;
+    public static final int VELOCIDAD_CABEZAL_DEFECTO = 5;
+
+    public static final int USUARIOS_MIN = 1; //rango de usuarios normales (ademas de admin)
+    public static final int USUARIOS_MAX = 5;
+    public static final int USUARIOS_DEFECTO = 3;
+
+    public static final int NOMBRE_ARCHIVO_MAX = 20; //maximo de caracteres del nombre de un archivo o directorio
+    public static final int TAMANO_ARCHIVO_MIN = 1; //un archivo ocupa al menos un bloque
+
+    public static final int QUANTUM_DEFECTO = 4; //quantum que se guarda si la politica del JSON no es Round Robin (su quantum no se usa)
+    public static final int PRIORIDAD_DEFECTO = 5; //prioridad de los procesos del JSON que no la indican
     
 }

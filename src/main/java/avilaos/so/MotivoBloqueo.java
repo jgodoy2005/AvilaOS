@@ -9,7 +9,8 @@ package avilaos.so;
  * @author juandiegogodoy
  */
 public enum MotivoBloqueo {
-    ES("Esperando E/S"),
+    ES("E/S de dispositivo"),
+    ES_DISCO("E/S de disco"),
     BUFFER_LLENO("Buffer lleno: semWait(e)"),
     BUFFER_VACIO("Buffer vacio: semWait(n)"),
     REGION_CRITICA("Region critica ocupada: semWait(s)"),

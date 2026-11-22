@@ -13,6 +13,8 @@ public enum EstadoProceso {
     LISTO("Listo"),
     EJECUCION("Ejecucion"),
     BLOQUEADO("Bloqueado"),
+    LISTO_SUSPENDIDO("Listo/Suspendido"),       //en el swap, listo para volver a la RAM
+    BLOQUEADO_SUSPENDIDO("Bloqueado/Suspendido"), //en el swap y esperando un evento
     TERMINADO("Terminado");
             
     private final String nombre;

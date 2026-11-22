@@ -40,7 +40,7 @@ import javax.swing.table.AbstractTableModel;
  */
 public class PanelConfiguracion extends JPanel {
 
-    private final JSpinner cantidad = PanelSimulacion.spinner(2,
+    private final JSpinner cantidad = PanelSimulacion.spinner(Limites.COMPUTADORES_MIN,
             Limites.COMPUTADORES_MIN, Limites.COMPUTADORES_MAX, 1);
     private final JSpinner duracion = PanelSimulacion.spinner(500,
             Limites.DURACION_CICLO_MIN_MS, Limites.DURACION_CICLO_MAX_MS, 50);

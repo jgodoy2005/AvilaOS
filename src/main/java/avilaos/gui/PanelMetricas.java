@@ -225,6 +225,8 @@ public class PanelMetricas extends JPanel {
                 new Color(214, 39, 40);
             case INALCANZABLE ->
                 new Color(255, 127, 14);
+            case RECHAZADO ->
+                new Color(148, 103, 189);
         };
     }
 
