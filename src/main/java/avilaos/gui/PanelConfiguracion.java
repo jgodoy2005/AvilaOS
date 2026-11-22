@@ -64,6 +64,7 @@ public class PanelConfiguracion extends JPanel {
     public PanelConfiguracion(Accion<ConfiguracionSimulacion> alIniciar) {
         super(new BorderLayout(8, 8));
         this.alIniciar = alIniciar;
+        cantidad.setEnabled(false); //FIJAR EN 1, NO DEJAR CAMBIAR
 
         JPanel parametros = Formato.formulario();
         Formato.fila(parametros, 0, "Número de computadores:", cantidad);
