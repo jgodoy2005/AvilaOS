@@ -29,12 +29,11 @@ public record ConfiguracionSimulacion(
     public record ConfigBuffer(int capacidad, int anfitrion) {}
 
     // Configuración por defecto: 2 computadores de 1024 MB sin carga inicial
-    public static ConfiguracionSimulacion porDefecto() {
+   public static ConfiguracionSimulacion porDefecto() {
         return new ConfiguracionSimulacion(
             500, 4, 3,
             new ConfigComputador[] {
-                new ConfigComputador(1024, TipoPolitica.FCFS),
-                new ConfigComputador(1024, TipoPolitica.ROUND_ROBIN)
+                new ConfigComputador(1024, TipoPolitica.FCFS)
             },
             new ConfigBuffer[0],
             new DatosProceso[0]

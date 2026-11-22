@@ -61,9 +61,9 @@ public class PanelSimulacion extends JPanel {
         });
         paso.addActionListener(e -> simulacion.avanzarUnCiclo());
         JButton nuevoProceso = new JButton("Nuevo proceso…");
-        JButton nuevoBuffer = new JButton("Nuevo buffer…");
+      //  JButton nuevoBuffer = new JButton("Nuevo buffer…");
         nuevoProceso.addActionListener(e -> crearProceso());
-        nuevoBuffer.addActionListener(e -> crearBuffer());
+     //   nuevoBuffer.addActionListener(e -> crearBuffer());
         JSpinner duracion = spinner(simulacion.getDuracionCicloMs(),
                 Limites.DURACION_CICLO_MIN_MS,
                 Limites.DURACION_CICLO_MAX_MS, 50);
@@ -72,9 +72,9 @@ public class PanelSimulacion extends JPanel {
         JSpinner quantum = spinner(simulacion.getQuantum(),
                 Limites.QUANTUM_MIN, Limites.QUANTUM_MAX, 1);
         quantum.addChangeListener(e -> simulacion.setQuantum((Integer) quantum.getValue()));
-        JSpinner latencia = spinner(simulacion.getLatenciaRed(),
-                Limites.LATENCIA_MIN, Limites.LATENCIA_MAX, 1);
-        latencia.addChangeListener(e -> simulacion.setLatenciaRed((Integer) latencia.getValue()));
+ //       JSpinner latencia = spinner(simulacion.getLatenciaRed(),
+   //             Limites.LATENCIA_MIN, Limites.LATENCIA_MAX, 1);
+   //     latencia.addChangeListener(e -> simulacion.setLatenciaRed((Integer) latencia.getValue()));
 
         JPanel controles = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         controles.add(ciclo);
@@ -86,10 +86,10 @@ public class PanelSimulacion extends JPanel {
         controles.add(duracion);
         controles.add(new JLabel("Quantum RR:"));
         controles.add(quantum);
-        controles.add(new JLabel("Latencia de red (ciclos):"));
-        controles.add(latencia);
+      //  controles.add(new JLabel("Latencia de red (ciclos):"));
+      //  controles.add(latencia);
         controles.add(nuevoProceso);
-        controles.add(nuevoBuffer);
+       // controles.add(nuevoBuffer);
 
 // ----- Un panel por computador -----
         computadores = new PanelComputador[politicasIniciales.length];
@@ -103,11 +103,11 @@ public class PanelSimulacion extends JPanel {
         JScrollPane scrollComputadores = new JScrollPane(fila);
         scrollComputadores.getVerticalScrollBar().setUnitIncrement(16);
         scrollComputadores.getHorizontalScrollBar().setUnitIncrement(16);
-        JSplitPane abajo = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                buffers, log);
-        abajo.setResizeWeight(0.55);
+      //  JSplitPane abajo = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+      //          buffers, log);
+      //  abajo.setResizeWeight(0.55);
         JSplitPane division = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                scrollComputadores, abajo);
+                scrollComputadores, log);
         division.setResizeWeight(0.8);
         resumen.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
         JPanel norte = new JPanel(new BorderLayout());
