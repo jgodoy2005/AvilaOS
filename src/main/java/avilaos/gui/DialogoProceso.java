@@ -36,7 +36,7 @@ public class DialogoProceso extends JDialog {
     private static final int VECES_EL_MINIMO = 3;
 
     private final JTextField nombre = new JTextField("Proceso", 14);
-    private final ModeloLista<TipoProceso> modeloTipo = new ModeloLista<>(TipoProceso.values());
+    private final ModeloLista<TipoProceso> modeloTipo = new ModeloLista<>(TipoProceso.disponiblesEnDialogo());
     private final JComboBox<TipoProceso> tipo = new JComboBox<>(modeloTipo);
     private final ModeloLista<String> modeloComputador;
     private final JTextField memoria = new JTextField("64", 6);

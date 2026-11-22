@@ -11,7 +11,8 @@ package avilaos.so;
 public enum MotivoTerminacion {
     COMPLETADO("Completado"),
     DEADLINE("Deadline vencido"),
-    INALCANZABLE("Deadline inalcanzable");
+    INALCANZABLE("Deadline inalcanzable"),
+    RECHAZADO("Operación rechazada");
     
     private final String descripcion;
     

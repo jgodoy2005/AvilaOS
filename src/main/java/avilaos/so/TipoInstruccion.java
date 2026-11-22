@@ -13,6 +13,7 @@ public enum TipoInstruccion {
     PRODUCIR("producir()", ModoCPU.USUARIO),
     CONSUMIR("consumir()", ModoCPU.USUARIO),
     SOLICITAR_ES("Solicitar E/S", ModoCPU.SISTEMA_OPERATIVO),
+    OPERACION_ARCHIVO("Operación de archivo", ModoCPU.SISTEMA_OPERATIVO),
     SEM_WAIT_E("semWait(e)", ModoCPU.SISTEMA_OPERATIVO),
     SEM_WAIT_N("semWait(n)", ModoCPU.SISTEMA_OPERATIVO),
     SEM_WAIT_S("semWait(s)", ModoCPU.SISTEMA_OPERATIVO),
@@ -35,7 +36,7 @@ public enum TipoInstruccion {
     }
     
     public boolean esOperacionDeBuffer(){
-        return modo == ModoCPU.SISTEMA_OPERATIVO && this != SOLICITAR_ES;
+        return modo == ModoCPU.SISTEMA_OPERATIVO && this != SOLICITAR_ES && this != OPERACION_ARCHIVO;
     }
     
     @Override
