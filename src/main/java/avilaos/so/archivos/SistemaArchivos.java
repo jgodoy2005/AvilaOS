@@ -8,14 +8,15 @@ import avilaos.simulacion.FotoArchivo;
 import avilaos.simulacion.FotoNodo;
 import avilaos.so.ModoUsuario;
 import avilaos.so.RegistroEventos;
+import avilaos.so.TipoOperacionES;
 import java.util.concurrent.Semaphore;
 
 /**
  * Sistema de archivos jerárquico sobre el disco, con asignación encadenada: cada archivo
  * guarda su primer bloque y su cantidad, y cada bloque del disco guarda cuál es el siguiente.
  *
- * Este paso arma el árbol, su carga inicial y sus fotos. Los permisos llegan en Archivos 3
- * y las operaciones en Archivos 4. El árbol se protege con un semáforo.
+ * Este paso arma el árbol, su carga inicial, sus permisos y sus fotos. Las operaciones
+ * llegan en Archivos 4. El árbol se protege con un semáforo.
  */
 public class SistemaArchivos {
 
@@ -194,6 +195,84 @@ public class SistemaArchivos {
             b = disco.siguienteDe(b);
         }
         return r;
+    }
+    
+//PERMISOS
+
+    /**
+     * Para la interfaz en modo usuario: revisa el permiso antes de crear el proceso. Devuelve null
+     * si puede (o si la ruta ya no existe: eso lo resuelve el proceso al ejecutarse) o la razón.
+     * Para crear, la ruta es la del directorio donde se crea.
+     */
+    public String puede(String usuario, TipoOperacionES operacion, String ruta) {
+        mutex.acquireUninterruptibly();
+        try {
+            NodoFS nodo = buscarSinCandado(ruta, false);
+            return nodo == null ? null : verificar(usuario, operacion, nodo);
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * Revisa si un usuario puede hacer una operación. Devuelve null si puede, o la razón del rechazo.
+     * Para crear, 'nodo' es el directorio donde se crea. Se llama con el árbol tomado.
+     */
+    private String verificar(String usuario, TipoOperacionES operacion, NodoFS nodo) {
+        if (ModoUsuario.CUENTA_ADMIN.equals(usuario)) {
+            return null;                                         //el administrador puede todo
+        }
+        boolean suyo = usuario.equals(nodo.getDueno());
+        switch (operacion) {
+            case CREAR:
+                return suyo ? null
+                        : "solo puede crear dentro de sus propios directorios y " + nodo.ruta() + " no es suyo";
+            case LEER:
+                if (suyo) {
+                    return null;
+                }
+                NodoFS privado = directorioPrivadoAjeno(usuario, nodo.getPadre());
+                if (privado != null) {
+                    return "el directorio " + privado.ruta() + " es privado de " + privado.getDueno();
+                }
+                return nodo.getPermiso() == Permiso.PUBLICO ? null
+                        : "el archivo es privado de " + nodo.getDueno();
+            case ACTUALIZAR:
+                return suyo ? null : "solo su dueño (" + nodo.getDueno() + ") o el administrador pueden renombrarlo";
+            case ELIMINAR:
+                if (!suyo) {
+                    return "solo su dueño (" + nodo.getDueno() + ") o el administrador pueden eliminarlo";
+                }
+                NodoFS ajeno = primerElementoAjeno(usuario, nodo);
+                return ajeno == null ? null
+                        : "no puede eliminar " + ajeno.ruta() + ": pertenece a " + ajeno.getDueno();
+            default:
+                return "operación no permitida";
+        }
+    }
+
+    //El borrado recursivo exige autorización sobre todos los elementos que desaparecerían.
+    private static NodoFS primerElementoAjeno(String usuario, NodoFS nodo) {
+        if (!usuario.equals(nodo.getDueno())) {
+            return nodo;
+        }
+        for (NodoFS hijo : nodo.getHijos()) {
+            NodoFS ajeno = primerElementoAjeno(usuario, hijo);
+            if (ajeno != null) {
+                return ajeno;
+            }
+        }
+        return null;
+    }
+
+    //el primer directorio privado de otro usuario en el camino hasta la raiz (null si puede entrar)
+    private static NodoFS directorioPrivadoAjeno(String usuario, NodoFS directorio) {
+        for (NodoFS d = directorio; d != null; d = d.getPadre()) {
+            if (d.getPermiso() == Permiso.PRIVADO && !usuario.equals(d.getDueno())) {
+                return d;
+            }
+        }
+        return null;
     }
 
     //FOTOS Y GUARDADO
