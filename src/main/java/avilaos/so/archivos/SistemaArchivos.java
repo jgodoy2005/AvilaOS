@@ -7,16 +7,22 @@ import avilaos.hardware.Disco;
 import avilaos.simulacion.FotoArchivo;
 import avilaos.simulacion.FotoNodo;
 import avilaos.so.ModoUsuario;
+import avilaos.so.OperacionArchivo;
+import avilaos.so.PCB;
 import avilaos.so.RegistroEventos;
 import avilaos.so.TipoOperacionES;
+import avilaos.so.disco.Solicitud;
+
 import java.util.concurrent.Semaphore;
 
 /**
  * Sistema de archivos jerárquico sobre el disco, con asignación encadenada: cada archivo
  * guarda su primer bloque y su cantidad, y cada bloque del disco guarda cuál es el siguiente.
  *
- * Este paso arma el árbol, su carga inicial, sus permisos y sus fotos. Las operaciones
- * llegan en Archivos 4. El árbol se protege con un semáforo.
+ * Las operaciones tienen dos mitades. Al ejecutarse la instrucción del proceso (preparar)
+ * se revisa todo, se reservan los bloques y se arma la solicitud; cuando el disco termina
+ * (completar) se aplica el cambio en el árbol. Todo ocurre en el hilo del kernel y el árbol
+ * se protege con un semáforo.
  */
 public class SistemaArchivos {
 
@@ -275,6 +281,275 @@ public class SistemaArchivos {
         return null;
     }
 
+    //OPERACIONES (hilo del kernel)
+
+    /**
+     * Primera mitad de una operación, cuando el proceso ejecuta su instrucción: revisa que se
+     * pueda hacer, reserva lo necesario y arma la solicitud para el disco.
+     */
+    public Solicitud preparar(PCB proceso, OperacionArchivo op) throws OperacionRechazada {
+        mutex.acquireUninterruptibly();
+        try {
+            String usuario = op.usuario() == null ? ModoUsuario.CUENTA_ADMIN : op.usuario();
+            if (op.operacion() == TipoOperacionES.CREAR) {
+                return prepararCreacion(proceso, op, usuario);
+            }
+            NodoFS nodo = buscarSinCandado(op.ruta(), false);
+            if (nodo == null) {
+                throw new OperacionRechazada("no existe " + op.ruta());
+            }
+            if (nodo.tieneEliminacionPendienteArriba()) {
+                throw new OperacionRechazada(op.ruta() + " tiene una eliminación pendiente");
+            }
+            if (nodo == raiz && op.operacion() != TipoOperacionES.LEER) {
+                throw new OperacionRechazada("la raíz no se puede modificar");
+            }
+            if (op.operacion() == TipoOperacionES.LEER && nodo.esDirectorio()) {
+                throw new OperacionRechazada("solo se pueden leer archivos y " + op.ruta() + " es un directorio");
+            }
+            String negado = verificar(usuario, op.operacion(), nodo);
+            if (negado != null) {
+                throw new OperacionRechazada(negado);
+            }
+            Solicitud s;
+            switch (op.operacion()) {
+                case LEER -> s = new Solicitud(proceso, TipoOperacionES.LEER, "Leer " + nodo.ruta(), cadenaDe(nodo));
+                case ACTUALIZAR -> {
+                    String nuevo = op.nombreNuevo();
+                    if (nuevo != null) {
+                        String problema = revisarNombre(nuevo, nodo.getPadre(), nodo);
+                        if (problema != null) {
+                            throw new OperacionRechazada(problema);
+                        }
+                    }
+                    //renombrar escribe la cabecera del archivo, que esta en su primer bloque
+                    int[] cabecera = nodo.esDirectorio() ? new int[0] : new int[] {nodo.getPrimerBloque()};
+                    s = new Solicitud(proceso, TipoOperacionES.ACTUALIZAR, "Actualizar " + nodo.ruta()
+                            + (nuevo != null ? " a " + nuevo : " (sin nombre nuevo)"), cabecera);
+                    s.setNombreNuevo(nuevo);
+                }
+                default -> {   //ELIMINAR
+                    if (nodo.tienePendientesEnSuArbol()) {
+                        throw new OperacionRechazada(op.ruta() + " tiene operaciones pendientes");
+                    }
+                    s = new Solicitud(proceso, TipoOperacionES.ELIMINAR, "Eliminar " + nodo.ruta(), bloquesDeSuArbol(nodo));
+                    nodo.setEliminacionPendiente(true);
+                }
+            }
+            nodo.sumarPendiente(1);
+            s.setNodo(nodo);
+            return s;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    private Solicitud prepararCreacion(PCB proceso, OperacionArchivo op, String usuario) throws OperacionRechazada {
+        String ruta = op.ruta();
+        if (ruta == null || !ruta.startsWith("/") || ruta.endsWith("/")) {
+            throw new OperacionRechazada("la ruta " + ruta + " no es válida");
+        }
+        int corte = ruta.lastIndexOf('/');
+        String nombre = ruta.substring(corte + 1);
+        NodoFS padre = buscarSinCandado(corte == 0 ? "/" : ruta.substring(0, corte), false);
+        if (padre == null || !padre.esDirectorio()) {
+            throw new OperacionRechazada("no existe el directorio " + (corte == 0 ? "/" : ruta.substring(0, corte)));
+        }
+        if (padre.tieneEliminacionPendienteArriba()) {
+            throw new OperacionRechazada(padre.ruta() + " tiene una eliminación pendiente");
+        }
+        String problema = revisarNombre(nombre, padre, null);
+        if (problema != null) {
+            throw new OperacionRechazada(problema);
+        }
+        String negado = verificar(usuario, TipoOperacionES.CREAR, padre);
+        if (negado != null) {
+            throw new OperacionRechazada(negado);
+        }
+        //el administrador puede dar el elemento nuevo a otro usuario; un usuario crea para si mismo
+        String dueno = op.dueno() != null ? op.dueno() : usuario;
+        if (!usuarioValido(dueno)) {
+            throw new OperacionRechazada("el dueño " + dueno + " no existe");
+        }
+        if (!dueno.equals(usuario) && !ModoUsuario.CUENTA_ADMIN.equals(usuario)) {
+            throw new OperacionRechazada("solo el administrador puede crear elementos para otro usuario");
+        }
+        Permiso permiso = op.permiso() != null ? op.permiso() : Permiso.PUBLICO;
+        NodoFS nuevo = new NodoFS(nombre, op.tipoNodo(), dueno, permiso, proceso == null ? "-" : proceso.toString());
+        int[] cadena = new int[0];
+        if (op.tipoNodo() == TipoNodo.ARCHIVO) {
+            if (op.bloques() < Limites.TAMANO_ARCHIVO_MIN) {
+                throw new OperacionRechazada("un archivo ocupa al menos un bloque");
+            }
+            cadena = disco.primerosLibres(op.bloques(), false);
+            if (cadena == null) {
+                throw new OperacionRechazada("no hay bloques libres suficientes: necesita " + op.bloques()
+                        + " y hay " + disco.libresEnZona(false));
+            }
+            nuevo.ubicar(cadena[0], cadena.length);
+            nuevo.setColor(proximoColor++);
+        }
+        nuevo.setPendiente(true);            //no se muestra hasta que el disco termine de escribirlo
+        padre.agregarHijo(nuevo);
+        padre.sumarPendiente(1);             //mientras tanto, el directorio no se puede eliminar
+        ocuparCadena(cadena, nuevo.ruta(), nuevo.getColor());
+        Solicitud s = new Solicitud(proceso, TipoOperacionES.CREAR, "Crear " + nuevo.ruta()
+                + (cadena.length > 0 ? " (" + bloques(cadena.length) + ")" : " (directorio)"), cadena);
+        s.setNodo(nuevo);
+        return s;
+    }
+
+    //nombre no vacio, sin '/', con largo maximo y sin repetirse en el directorio
+    private static String revisarNombre(String nombre, NodoFS directorio, NodoFS mismo) {
+        if (nombre == null || nombre.isBlank()) {
+            return "el nombre no puede estar vacío";
+        }
+        if (nombre.contains("/")) {
+            return "el nombre no puede tener '/'";
+        }
+        if (nombre.length() > Limites.NOMBRE_ARCHIVO_MAX) {
+            return "el nombre admite hasta " + Limites.NOMBRE_ARCHIVO_MAX + " caracteres";
+        }
+        NodoFS otro = directorio.hijo(nombre, true);   //el mismo elemento no cuenta como repetido
+        if (otro != null && otro != mismo) {
+            return "ya existe " + nombre + " en " + directorio.ruta();
+        }
+        return null;
+    }
+
+    //todos los bloques de los archivos de un arbol, en orden (eliminar un directorio los recorre todos)
+    private int[] bloquesDeSuArbol(NodoFS nodo) {
+        ListaEnlazada<NodoFS> archivos = new ListaEnlazada<>();
+        juntarArchivos(nodo, archivos);
+        int total = 0;
+        for (NodoFS a : archivos.aArreglo(new NodoFS[archivos.tamano()])) {
+            total += a.getCantidadBloques();
+        }
+        int[] r = new int[total];
+        int i = 0;
+        for (NodoFS a : archivos.aArreglo(new NodoFS[archivos.tamano()])) {
+            for (int b : cadenaDe(a)) {
+                r[i++] = b;
+            }
+        }
+        return r;
+    }
+
+    private static void juntarArchivos(NodoFS nodo, ListaEnlazada<NodoFS> destino) {
+        if (!nodo.esDirectorio()) {
+            destino.agregarAlFinal(nodo);
+            return;
+        }
+        for (NodoFS h : nodo.getHijos()) {
+            juntarArchivos(h, destino);
+        }
+    }
+
+    /**
+     * Aplica la solicitud terminada. Devuelve false si el cambio ya no puede hacerse.
+     */
+    public boolean completar(Solicitud s, long ciclo) {
+        mutex.acquireUninterruptibly();
+        try {
+            NodoFS nodo = s.getNodo();
+            switch (s.getOperacion()) {
+                case CREAR -> {
+                    nodo.setPendiente(false);
+                    nodo.getPadre().sumarPendiente(-1);
+                    registro.registrar(ciclo, "Se crea " + nodo.ruta()
+                            + (nodo.esDirectorio() ? " (directorio)" : " en los bloques " + textoCadena(s.bloques())));
+                }
+                case LEER -> {
+                    nodo.sumarPendiente(-1);
+                    registro.registrar(ciclo, "Se leyó " + nodo.ruta() + " (" + bloques(s.bloques().length) + ")");
+                }
+                case ACTUALIZAR -> {
+                    nodo.sumarPendiente(-1);
+                    String nuevo = s.getNombreNuevo();
+                    if (nuevo == null) {
+                        registro.registrar(ciclo, "Se actualiza " + nodo.ruta()
+                                + " sin cambiar el nombre: la solicitud no trae nombre nuevo");
+                    } else if (nuevo.equals(nodo.getNombre())) {
+                        registro.registrar(ciclo, "Se actualiza " + nodo.ruta()
+                                + " sin cambiar el nombre: el nombre nuevo es igual al actual");
+                    } else {
+                        String problema = revisarNombre(nuevo, nodo.getPadre(), nodo);
+                        if (problema != null) {
+                            registro.registrar(ciclo, "No se renombra " + nodo.ruta() + ": " + problema);
+                            return false;
+                        }
+                        String antes = nodo.ruta();
+                        nodo.renombrar(nuevo);
+                        reetiquetar(nodo);
+                        registro.registrar(ciclo, antes + " se renombra a " + nodo.ruta());
+                    }
+                }
+                case ELIMINAR -> {
+                    for (int b : s.bloques()) {
+                        disco.liberar(b);
+                    }
+                    String ruta = nodo.ruta();
+                    nodo.getPadre().quitarHijo(nodo);
+                    nodo.setEliminacionPendiente(false);
+                    nodo.sumarPendiente(-1);
+                    registro.registrar(ciclo, "Se elimina " + ruta + " y " + seLiberan(s.bloques().length));
+                }
+                default -> {
+                }
+            }
+            return true;
+        } finally {
+            mutex.release();
+        }
+    }
+
+    /**
+     * La solicitud se canceló antes de que el disco la empezara: se deshacen las reservas.
+     */
+    public void cancelar(Solicitud s, long ciclo) {
+        mutex.acquireUninterruptibly();
+        try {
+            NodoFS nodo = s.getNodo();
+            switch (s.getOperacion()) {
+                case CREAR -> {
+                    for (int b : s.bloques()) {
+                        disco.liberar(b);
+                    }
+                    String ruta = nodo.ruta();
+                    nodo.getPadre().sumarPendiente(-1);
+                    nodo.getPadre().quitarHijo(nodo);
+                    registro.registrar(ciclo, "Se cancela la creación de " + ruta
+                            + (s.bloques().length > 0 ? " y " + seLiberan(s.bloques().length) : ""));
+                }
+                case ELIMINAR -> {
+                    nodo.setEliminacionPendiente(false);
+                    nodo.sumarPendiente(-1);
+                }
+                default -> nodo.sumarPendiente(-1);
+            }
+        } finally {
+            mutex.release();
+        }
+    }
+
+    //al renombrar, las rutas cambian: se actualiza el ocupante de los bloques de los archivos de adentro
+    private void reetiquetar(NodoFS nodo) {
+        ListaEnlazada<NodoFS> archivos = new ListaEnlazada<>();
+        juntarArchivos(nodo, archivos);
+        archivos.paraCada(a -> {
+            int[] cadena = cadenaDe(a);
+            ocuparCadena(cadena, a.ruta(), a.getColor());
+        });
+    }
+
+    private static String textoCadena(int[] cadena) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cadena.length; i++) {
+            sb.append(i == 0 ? "" : ", ").append(cadena[i]);
+        }
+        return sb.toString();
+    }
+
     //FOTOS Y GUARDADO
 
     public FotoNodo fotografiar() {
@@ -360,5 +635,10 @@ public class SistemaArchivos {
     //"1 bloque" o "n bloques", para los mensajes
     public static String bloques(int n) {
         return n == 1 ? "1 bloque" : n + " bloques";
+    }
+    
+    //"se libera 1 bloque" o "se liberan n bloques"
+    private static String seLiberan(int n) {
+        return (n == 1 ? "se libera " : "se liberan ") + bloques(n);
     }
 }
