@@ -219,6 +219,7 @@ public class PanelComputador extends JPanel {
                 + "Computador: " + p.computador() + "\n"
                 + "Estado: " + p.estado() + (p.motivo().isEmpty() ? "" : " " + p.motivo()) + "\n"
                 + "Tipo: " + p.tipo() + "\n"
+                + (p.archivo().isEmpty() ? "" : "Operación solicitada: " + p.archivo() + "\n")
                 + "Prioridad: " + p.prioridad() + " (lleva " + p.ciclosEsperando() + " ciclos esperando)\n"
                 + "Memoria asignada: " + p.memoriaMB() + " MB\n"
                 + "Deadline: " + p.deadline() + " ciclos. vence en el ciclo " + p.cicloLimite() + " faltan " + p.deadlineRestante() + "\n"

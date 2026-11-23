@@ -52,7 +52,8 @@ public class PCB implements ContextoEjecucion {
 
     private final int ciclosEntreES;         // para procesos de cpu o E/S: cada cuántas instrucciones pide E/S (0 = nunca)
     private final int duracionES;            // ciclos que tarda cada E/S
-
+    private final OperacionArchivo operacionArchivo; // proceso de disco: operacion y ruta; null en los demas
+    
     private final BufferAcotado buffer;      // productor/consumidor; null en los demás
     private final int ciclosPorElemento;     // Cuanta tarda en crear/consumir un elemento
     private final int elementosRequeridos;   // Elementos totales
@@ -65,6 +66,9 @@ public class PCB implements ContextoEjecucion {
     private TipoInstruccion operacionRemota; // operación que viaja por la red
     private int ciclosRedRestantes;
     private MotivoTerminacion motivoTerminacion;
+    private MotivoTerminacion terminacionPendiente; // debe terminar cuando el disco responda lo que tiene pendiente
+    private String razonTerminacion;                // texto para el registro cuando termine
+    private int solicitudesEnDisco;  
     private long ordenLlegadaListos;         // para desempatar: quién entró antes a listos
     private int ciclosEsperando;             // ciclos seguidos en listos desde que entró (columna Espera)
 
@@ -97,6 +101,7 @@ public class PCB implements ContextoEjecucion {
         this.buffer = buffer;
         this.ciclosPorElemento = datos.ciclosPorElemento();
         this.elementosRequeridos = datos.elementos();
+        this.operacionArchivo = datos.archivo();
     }
     
     
@@ -124,6 +129,9 @@ public class PCB implements ContextoEjecucion {
                     return TipoInstruccion.SOLICITAR_ES;
                 }
                 return TipoInstruccion.CALCULO;
+              case ES_DISCO:
+                // la primera instruccion es la operacion de archivo; las demas, de calculo
+                return direccion == 0 ? TipoInstruccion.OPERACION_ARCHIVO : TipoInstruccion.CALCULO;
             case PRODUCTOR: {
                 // k veces producir(), luego semWait(e), semWait(s), añadir(), semSignal(s), semSignal(n)
                 int k = ciclosPorElemento;
@@ -192,6 +200,9 @@ public class PCB implements ContextoEjecucion {
     @Override
     public String descripcionInstruccionActual() {
         TipoInstruccion ins = instruccionActual();
+        if (ins == TipoInstruccion.OPERACION_ARCHIVO) {
+            return ins + ": " + operacionArchivo.descripcion();
+        }
         return ins.esOperacionDeBuffer() ? ins + " en " + buffer.getNombre() : ins.toString();
     }
 
@@ -270,6 +281,17 @@ public class PCB implements ContextoEjecucion {
         return op;
     }
 
+    // Debe terminar pero tiene solicitudes en el disco: se anota por que y termina cuando el disco responda
+    void marcarTerminacionPendiente(MotivoTerminacion motivo, String razon) {
+        terminacionPendiente = motivo;
+        razonTerminacion = razon;
+    }
+
+    // +1 al mandar una solicitud al disco, -1 cuando el disco la termina o la saca de la cola
+    void contarSolicitudEnDisco(int cambio) {
+        solicitudesEnDisco += cambio;
+    }
+    
     void setMemoriaAsignada(boolean asignada) {
         this.memoriaAsignada = asignada;
     }
@@ -332,6 +354,10 @@ public class PCB implements ContextoEjecucion {
     public TipoInstruccion getOperacionRemota() { return operacionRemota; }
     public int getCiclosRedRestantes() { return ciclosRedRestantes; }
     public MotivoTerminacion getMotivoTerminacion() { return motivoTerminacion; }
+    public MotivoTerminacion getTerminacionPendiente() { return terminacionPendiente; }
+    public String getRazonTerminacion() { return razonTerminacion; }
+    public OperacionArchivo getOperacionArchivo() { return operacionArchivo; }
+    public int getSolicitudesEnDisco() { return solicitudesEnDisco; }
     public long getOrdenLlegadaListos() { return ordenLlegadaListos; }
     public long getCicloCreacion() { return cicloCreacion; }
     public long getCicloPrimeraEjecucion() { return cicloPrimeraEjecucion; }

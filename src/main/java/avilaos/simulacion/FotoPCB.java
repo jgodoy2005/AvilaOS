@@ -34,7 +34,8 @@ public record FotoPCB(
     int ciclosEjecutados,
     int ciclosBloqueadoSemaforo,
     int ciclosBloqueadoRed,
-    MotivoBloqueo motivoBloqueo) {
+    MotivoBloqueo motivoBloqueo,
+    String archivo) {
 
     /** Foto del proceso al terminar el ciclo {@code ciclo}. */
     public static FotoPCB de(PCB p, long ciclo) {
@@ -64,7 +65,8 @@ public record FotoPCB(
             p.getCiclosEjecutados(),
             p.getCiclosBloqueadoSemaforo(),
             p.getCiclosBloqueadoRed(),
-            p.getEstado() == EstadoProceso.BLOQUEADO ? p.getMotivoBloqueo() : null
+            p.getEstado() == EstadoProceso.BLOQUEADO ? p.getMotivoBloqueo() : null,
+            p.getOperacionArchivo() == null ? "" : p.getOperacionArchivo().descripcion()   //operacion y ruta (procesos de disco)
         );
     }
 
@@ -78,7 +80,7 @@ public record FotoPCB(
         }
         MotivoBloqueo m = p.getMotivoBloqueo();
         return switch (m) {
-            case ES -> m.toString();
+             case ES, ES_DISCO -> m.toString();
             case RED -> m + ": " + p.getOperacionRemota() + " en " + p.getBuffer().getNombre() + " (faltan " + p.getCiclosRedRestantes() + ")";
             default -> m + " en " + p.getBuffer().getNombre();
         };
