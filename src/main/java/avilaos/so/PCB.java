@@ -68,7 +68,15 @@ public class PCB implements ContextoEjecucion {
     private MotivoTerminacion motivoTerminacion;
     private MotivoTerminacion terminacionPendiente; // debe terminar cuando el disco responda lo que tiene pendiente
     private String razonTerminacion;                // texto para el registro cuando termine
-    private int solicitudesEnDisco;  
+    private int solicitudesEnDisco;          // solicitudes suyas en la cola del disco o en curso
+
+    // Suspension 
+    private long cicloBloqueo;               // ciclo en que se bloqueo (criterio para elegir a quien suspender)
+    private int[] bloquesSwap;               // bloques del swap con su imagen (null si no tiene)
+    private boolean escribiendoSwap;         // el disco esta escribiendo su imagen en el swap
+    private boolean leyendoSwap;             // el disco esta leyendo su imagen del swap (vuelve a la RAM)
+
+
     private long ordenLlegadaListos;         // para desempatar: quién entró antes a listos
     private int ciclosEsperando;             // ciclos seguidos en listos desde que entró (columna Espera)
 
@@ -244,9 +252,21 @@ public class PCB implements ContextoEjecucion {
         estado = EstadoProceso.EJECUCION;
     }
 
-    void bloquear(MotivoBloqueo motivo) {
+    void bloquear(MotivoBloqueo motivo, long ciclo) {
         estado = EstadoProceso.BLOQUEADO;
         motivoBloqueo = motivo;
+        cicloBloqueo = ciclo;
+    }
+    
+    // Bloqueado -> Bloqueado/Suspendido (sigue esperando el mismo evento)
+    void suspender() {
+        estado = EstadoProceso.BLOQUEADO_SUSPENDIDO;
+    }
+    
+    // Bloqueado/Suspendido -> Listo/Suspendido: ocurrio su evento, pero sigue en el swap
+    void pasarAListoSuspendido() {
+        estado = EstadoProceso.LISTO_SUSPENDIDO;
+        motivoBloqueo = null;
     }
 
     void terminar(MotivoTerminacion motivo, long ciclo) {
@@ -290,6 +310,18 @@ public class PCB implements ContextoEjecucion {
     // +1 al mandar una solicitud al disco, -1 cuando el disco la termina o la saca de la cola
     void contarSolicitudEnDisco(int cambio) {
         solicitudesEnDisco += cambio;
+    }
+    
+    void setBloquesSwap(int[] bloques) {
+        this.bloquesSwap = bloques;
+    }
+
+    void setEscribiendoSwap(boolean valor) {
+        this.escribiendoSwap = valor;
+    }
+
+    void setLeyendoSwap(boolean valor) {
+        this.leyendoSwap = valor;
     }
     
     void setMemoriaAsignada(boolean asignada) {
@@ -358,6 +390,10 @@ public class PCB implements ContextoEjecucion {
     public String getRazonTerminacion() { return razonTerminacion; }
     public OperacionArchivo getOperacionArchivo() { return operacionArchivo; }
     public int getSolicitudesEnDisco() { return solicitudesEnDisco; }
+    public long getCicloBloqueo() { return cicloBloqueo; }
+    public int[] getBloquesSwap() { return bloquesSwap; }
+    public boolean isEscribiendoSwap() { return escribiendoSwap; }
+    public boolean isLeyendoSwap() { return leyendoSwap; }
     public long getOrdenLlegadaListos() { return ordenLlegadaListos; }
     public long getCicloCreacion() { return cicloCreacion; }
     public long getCicloPrimeraEjecucion() { return cicloPrimeraEjecucion; }

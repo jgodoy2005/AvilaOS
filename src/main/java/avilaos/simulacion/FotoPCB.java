@@ -37,7 +37,7 @@ public record FotoPCB(
     MotivoBloqueo motivoBloqueo,
     String archivo) {
 
-    /** Foto del proceso al terminar el ciclo {@code ciclo}. */
+    //Foto del proceso al terminar el ciclo 
     public static FotoPCB de(PCB p, long ciclo) {
         boolean terminado = p.getEstado() == EstadoProceso.TERMINADO;
         return new FotoPCB(
@@ -65,22 +65,29 @@ public record FotoPCB(
             p.getCiclosEjecutados(),
             p.getCiclosBloqueadoSemaforo(),
             p.getCiclosBloqueadoRed(),
-            p.getEstado() == EstadoProceso.BLOQUEADO ? p.getMotivoBloqueo() : null,
+            p.getEstado() == EstadoProceso.BLOQUEADO || p.getEstado() == EstadoProceso.BLOQUEADO_SUSPENDIDO
+                    ? p.getMotivoBloqueo() : null,
             p.getOperacionArchivo() == null ? "" : p.getOperacionArchivo().descripcion()   //operacion y ruta (procesos de disco)
         );
     }
 
-    private static String describirMotivo(PCB p) {
+      private static String describirMotivo(PCB p) {
         if (p.getEstado() == EstadoProceso.TERMINADO) {
             boolean nuncaCorrio = p.getCicloPrimeraEjecucion() < 0;
             return p.getMotivoTerminacion() + (nuncaCorrio ? " (sin CPU)" : "");
         }
-        if (p.getEstado() != EstadoProceso.BLOQUEADO || p.getMotivoBloqueo() == null) {
+        if (p.getEstado() == EstadoProceso.LISTO_SUSPENDIDO) {
+            return p.isEscribiendoSwap() ? "Escribiéndose en el swap" : p.isLeyendoSwap() ? "Volviendo a la RAM" : "En el swap";
+        }
+        boolean bloqueado = p.getEstado() == EstadoProceso.BLOQUEADO
+                || p.getEstado() == EstadoProceso.BLOQUEADO_SUSPENDIDO;
+        if (!bloqueado || p.getMotivoBloqueo() == null) {
             return "";
         }
         MotivoBloqueo m = p.getMotivoBloqueo();
+        String swap = p.isEscribiendoSwap() ? " (escribiéndose en el swap)" : "";
         return switch (m) {
-             case ES, ES_DISCO -> m.toString();
+            case ES, ES_DISCO -> m + swap;
             case RED -> m + ": " + p.getOperacionRemota() + " en " + p.getBuffer().getNombre() + " (faltan " + p.getCiclosRedRestantes() + ")";
             default -> m + " en " + p.getBuffer().getNombre();
         };

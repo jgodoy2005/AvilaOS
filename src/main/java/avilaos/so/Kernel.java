@@ -143,7 +143,7 @@ public class Kernel implements ManejadorInterrupciones{
                     + p.etiqueta() + " (remota)" + textoOcupacion(operacion, buffer));
             if (motivo != null) {
                 //llego el mensaje el buffer lo bloqueo por otro motivo
-                p.bloquear(motivo);
+                p.bloquear(motivo, ciclo);
                 registrarBloqueo(p, buffer, motivo);
             } else {
                 //la operacion fue exitosa, se elimina de bloqueados y pasa a listos
@@ -341,7 +341,7 @@ public class Kernel implements ManejadorInterrupciones{
 
     //cambia el estado de un proceso a bloqueados y lo manda a la cola de bloqueados
     private void bloquear(PCB p, MotivoBloqueo motivo) {
-        p.bloquear(motivo);
+        p.bloquear(motivo, ciclo);
         bloqueados.encolar(p);
     }
 
