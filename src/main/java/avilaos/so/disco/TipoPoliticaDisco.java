@@ -20,6 +20,15 @@ public enum TipoPoliticaDisco {
     TipoPoliticaDisco(String nombre) {
         this.nombre = nombre;
     }
+    
+    public PoliticaDisco crear() {
+        return switch (this) {
+            case FIFO -> new PoliticaFIFO();
+            case SSTF -> new PoliticaSSTF();
+            case SCAN -> new PoliticaSCAN();
+            case C_SCAN -> new PoliticaCSCAN();
+        };
+    }
 
     //convierte el texto del JSON (FIFO, SSTF, SCAN, C-SCAN; tambien acepta C_SCAN o minusculas); null si no es valido
     public static TipoPoliticaDisco desdeTexto(String texto) {
@@ -36,7 +45,6 @@ public enum TipoPoliticaDisco {
         return texto == null ? "" : texto.trim().toUpperCase().replace("-", "").replace("_", "").replace(" ", "");
     }
 
-    @Override
     public String toString() {
         return nombre;
     }
