@@ -10,36 +10,171 @@ import java.util.concurrent.Semaphore;
  *
  * @author erick
  */
-public class Disco {
+public class Disco implements ComponenteReloj {
 
     private final Bloque[] bloques;
     private final int bloquesArchivos;
+    private final int bloquesSwap;
     private final Semaphore mapa = new Semaphore(1, true);
+
+    private ControladorDisco controlador;
+    private ManejadorDisco manejador;
 
     private int cabezal;
     private DireccionCabezal direccion;
     private int velocidad;                  //posiciones que recorre el cabezal por ciclo
 
-    public Disco(int bloquesArchivos, int bloquesSwap, int cabezalInicial,
-                 DireccionCabezal direccionInicial, int velocidad) {
-        if (bloquesArchivos <= 0 || bloquesSwap < 0) {
-            throw new IllegalArgumentException("El disco necesita al menos un bloque de archivos");
+    private TrabajoDisco actual;            //trabajo en curso (null si el disco esta libre)
+    private int indice;                     //posicion, dentro de la cadena, del proximo bloque a visitar
+    private boolean detenido;               //detenido por el usuario: no toma trabajos nuevos
+    private boolean deteniendo;             //se pidio detener: termina el trabajo actual y se detiene
+    private long desplazamiento;
+
+    public Disco(int bloquesArchivos, int bloquesSwap, int cabezalInicial, DireccionCabezal direccionInicial, int velocidad) {
+        if (bloquesArchivos < 1) {
+            throw new IllegalArgumentException("Debe haber al menos un bloque para archivos");
+        }
+        if (bloquesSwap < 0) {
+            throw new IllegalArgumentException("Los bloques de swap no pueden ser negativos");
+        }
+        int total = bloquesArchivos + bloquesSwap;
+        if (cabezalInicial < 0 || cabezalInicial >= total) {
+            throw new IllegalArgumentException("El cabezal inicial debe estar entre 0 y " + (total - 1));
+        }
+        if (direccionInicial == null) {
+            throw new IllegalArgumentException("Falta la dirección inicial del cabezal");
+        }
+        if (velocidad < 1) {
+            throw new IllegalArgumentException("La velocidad del cabezal debe ser al menos 1");
         }
         this.bloquesArchivos = bloquesArchivos;
-        this.bloques = new Bloque[bloquesArchivos + bloquesSwap];
-        for (int i = 0; i < bloques.length; i++) {
-            bloques[i] = new Bloque(i, i >= bloquesArchivos);
+        this.bloquesSwap = bloquesSwap;
+        this.bloques = new Bloque[total];
+        for (int i = 0; i < total; i++) {
+            this.bloques[i] = new Bloque(i, i >= bloquesArchivos);
         }
-        if (cabezalInicial < 0 || cabezalInicial >= bloques.length) {
-            throw new IllegalArgumentException("El cabezal debe estar entre 0 y " + (bloques.length - 1));
-        }
+        
         this.cabezal = cabezalInicial;
         this.direccion = direccionInicial;
         this.velocidad = velocidad;
     }
+    // conecta el disco con el planificador de disco y con el kernel
+    public void conectar(ControladorDisco controlador, ManejadorDisco manejador) {
+        this.controlador = controlador;
+        this.manejador = manejador;
+    }
+
+    //un ciclo de trabajo del disco: o se mueve (hasta 'velocidad' posiciones) o lee/escribe un bloque
+    @Override
+    public void tic(long ciclo) {
+        if (controlador != null) {
+            controlador.recibir(ciclo);   //solicitudes y cancelaciones de ciclos anteriores
+        }
+        if (actual == null) {
+            if (detenido || controlador == null) {
+                return;
+            }
+            //el disco esta libre: el planificador decide (la decision no gasta el ciclo)
+            DecisionDisco d = controlador.siguiente(cabezal, direccion, getUltimoBloque(), ciclo);
+            switch (d.getTipo()) {
+                case ESPERAR -> {
+                    return;
+                }
+                case SALTAR_AL_INICIO -> {   //C-SCAN: del extremo al bloque 0, un ciclo sin desplazamiento
+                    cabezal = 0;
+                    direccion = DireccionCabezal.ARRIBA;
+                    return;
+                }
+                case MOVER -> {              //SCAN y C-SCAN: ir hasta el extremo sin atender a nadie
+                    direccion = d.getDireccion();
+                    moverHacia(d.getDestino());
+                    return;
+                }
+                case ATENDER -> {
+                    actual = d.getTrabajo();
+                    indice = 0;
+                    direccion = d.getDireccion();
+                }
+            }
+        }
+        trabajar(ciclo);
+    }
+    
+    //avanza el trabajo actual un ciclo
+    private void trabajar(long ciclo) {
+        int[] cadena = actual.bloques();
+        if (cadena.length == 0) {          //operacion sobre un directorio: un ciclo sin mover el cabezal
+            terminar(ciclo);
+            return;
+        }
+        int objetivo = cadena[indice];
+        if (cabezal != objetivo) {          //primero llegar al bloque
+            moverHacia(objetivo);
+            return;
+        }
+        indice++;                           //en este ciclo se lee o escribe el bloque 'objetivo'
+        if (indice == cadena.length) {
+            terminar(ciclo);
+            return;
+        }
+        int siguiente = cadena[indice];
+        if (Math.abs(siguiente - cabezal) == 1) {
+            cabezal = siguiente;            //bloque vecino: se lee de corrido, sin ciclo de movimiento
+            desplazamiento++;
+        }
+    }
+
+    //el trabajo termino: se avisa al sistema operativo (interrupcion de fin de E/S)
+    private void terminar(long ciclo) {
+        TrabajoDisco terminado = actual;
+        actual = null;
+        indice = 0;
+        if (deteniendo) {
+            deteniendo = false;
+            detenido = true;
+        }
+        if (manejador != null) {
+            manejador.trabajoTerminado(terminado, ciclo);
+        }
+    }
+
+    //acerca el cabezal al destino, como maximo 'velocidad' posiciones
+    private void moverHacia(int destino) {
+        int distancia = Math.abs(destino - cabezal);
+        int paso = Math.min(velocidad, distancia);
+        cabezal += destino > cabezal ? paso : -paso;
+        desplazamiento += paso;
+    }
+
+    //CONTROLES DEL USUARIO (se llaman con el candado del ciclo tomado)
+
+    //detener: si hay un trabajo en curso, lo termina y luego se detiene
+    public void detener() {
+        if (actual == null) {
+            detenido = true;
+        } else {
+            deteniendo = true;
+        }
+    }
+
+    public void reanudar() {
+        detenido = false;
+        deteniendo = false;
+    }
+
+    //solo con el disco detenido y libre; no suma desplazamiento porque no es trabajo del disco
+    public void moverCabezal(int posicion, DireccionCabezal nuevaDireccion) {
+        if (!detenido || actual != null) {
+            throw new IllegalStateException("El cabezal solo se puede mover con el disco detenido y libre");
+        }
+        if (posicion < 0 || posicion > getUltimoBloque()) {
+            throw new IllegalArgumentException("La posición debe estar entre 0 y " + getUltimoBloque());
+        }
+        cabezal = posicion;
+        direccion = nuevaDireccion;
+    }
 
     //MAPA DE BLOQUES (lo usan el sistema de archivos y el swap desde el hilo del kernel)
-
     //marca un bloque como ocupado e indica cual es el siguiente de su cadena
     public void ocupar(int bloque, String ocupante, int color, int siguiente) {
         mapa.acquireUninterruptibly();
@@ -160,14 +295,33 @@ public class Disco {
     }
 
     //DATOS DEL DISCO
+    public int getTotalBloques() {
+        return bloques.length;
+    }
 
-    public int getTotalBloques() { return bloques.length; }
-    public int getBloquesArchivos() { return bloquesArchivos; }
-    public int getBloquesSwap() { return bloques.length - bloquesArchivos; }
-    public int getUltimoBloque() { return bloques.length - 1; }
-    public int getCabezal() { return cabezal; }
-    public DireccionCabezal getDireccion() { return direccion; }
-    public int getVelocidad() { return velocidad; }
+    public int getBloquesArchivos() {
+        return bloquesArchivos;
+    }
+
+    public int getBloquesSwap() {
+        return bloques.length - bloquesArchivos;
+    }
+
+    public int getUltimoBloque() {
+        return bloques.length - 1;
+    }
+
+    public int getCabezal() {
+        return cabezal;
+    }
+
+    public DireccionCabezal getDireccion() {
+        return direccion;
+    }
+
+    public int getVelocidad() {
+        return velocidad;
+    }
 
     public void setVelocidad(int velocidad) {
         if (velocidad < 1) {
@@ -175,4 +329,10 @@ public class Disco {
         }
         this.velocidad = velocidad;
     }
+    
+    public TrabajoDisco getActual() { return actual; }
+    public int getBloquesHechos() { return actual == null ? 0 : indice; }
+    public boolean isDetenido() { return detenido; }
+    public boolean isDeteniendo() { return deteniendo; }
+    public long getDesplazamiento() { return desplazamiento; }
 }
