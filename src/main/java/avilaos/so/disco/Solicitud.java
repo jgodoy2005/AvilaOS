@@ -7,6 +7,7 @@ package avilaos.so.disco;
 import avilaos.hardware.TrabajoDisco;
 import avilaos.so.PCB;
 import avilaos.so.TipoOperacionES;
+import avilaos.so.archivos.NodoFS;
 /**
  *
  * @author juandiegogodoy
@@ -20,6 +21,8 @@ public class Solicitud implements TrabajoDisco {
     private final String descripcion;
     private final int[] bloques;
     private long cicloLlegada = -1;
+    private NodoFS nodo;                //archivo o directorio sobre el que trabaja (el nuevo, si es crear)
+    private String nombreNuevo;         //al actualizar: el nombre nuevo (null si no viene)
 
     public Solicitud(PCB proceso, TipoOperacionES operacion, String descripcion, int[] bloques) {
         this.proceso = proceso;
@@ -57,6 +60,11 @@ public class Solicitud implements TrabajoDisco {
     public String etiqueta() {
         return proceso != null ? proceso.etiqueta() : descripcion;
     }
+    
+    public void setNodo(NodoFS nodo) { this.nodo = nodo; }
+    public NodoFS getNodo() { return nodo; }
+    public void setNombreNuevo(String nombreNuevo) { this.nombreNuevo = nombreNuevo; }
+    public String getNombreNuevo() { return nombreNuevo; }
 
     public PCB getProceso() { return proceso; }
     public TipoOperacionES getOperacion() { return operacion; }
