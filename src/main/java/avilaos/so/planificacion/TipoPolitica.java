@@ -35,6 +35,26 @@ public enum TipoPolitica {
         };
     }
     
+    //convierte el texto del JSON de procesos: el nombre del enum o el que se muestra (FCFS, ROUND_ROBIN,
+    //Round Robin, RR, PRIORIDAD, EDF), sin importar mayusculas; null si no es valido
+    public static TipoPolitica desdeTexto(String texto) {
+        String buscado = normalizar(texto);
+        if (buscado.equals("RR")) {
+            return ROUND_ROBIN;
+        }
+        for (TipoPolitica t : values()) {
+            if (normalizar(t.name()).equals(buscado) || normalizar(t.nombre).equals(buscado)) {
+                return t;
+            }
+        }
+        return null;
+    }
+
+    private static String normalizar(String texto) {
+        return texto == null ? "" : texto.trim().toUpperCase().replace("-", "").replace("_", "").replace(" ", "");
+    }
+
+    
     @Override 
     public String toString(){
         return nombre;

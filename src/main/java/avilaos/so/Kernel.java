@@ -4,6 +4,7 @@
  */
 package avilaos.so;
 
+import avilaos.estructuras.BuzonCiclos;
 import avilaos.estructuras.Cola;
 import avilaos.estructuras.ColaSincronizada;
 import avilaos.so.sincronizacion.BufferAcotado;
@@ -13,6 +14,15 @@ import avilaos.hardware.ContextoEjecucion;
 import avilaos.hardware.DispositivoES;
 import avilaos.hardware.ManejadorInterrupciones;
 import avilaos.hardware.Memoria;
+import avilaos.hardware.ManejadorDisco;
+import avilaos.hardware.ManejadorInterrupciones;
+import avilaos.hardware.Memoria;
+import avilaos.hardware.TrabajoDisco;
+import avilaos.so.archivos.SistemaArchivos;
+import avilaos.so.disco.AreaIntercambio;
+import avilaos.so.disco.AvisoDisco;
+import avilaos.so.disco.PlanificadorDisco;
+import avilaos.so.disco.Solicitud;
 import avilaos.so.planificacion.PoliticaPlanificacion;
 import avilaos.so.planificacion.TipoPolitica;
 /**
@@ -21,7 +31,7 @@ import avilaos.so.planificacion.TipoPolitica;
  * @author erick
  */
 
-public class Kernel implements ManejadorInterrupciones{
+public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
     
     //define el costo en ciclos de reloj el costo de cambiar el proceso
     private static final int COSTO_DESPACHO = 1;
@@ -48,6 +58,12 @@ public class Kernel implements ManejadorInterrupciones{
     private final Cola<PCB> terminados = new Cola<>();
     //buzon seguro donde otros computadores dejan aviso cuando despiertan a uno de los procesos
     private final ColaSincronizada<PCB> buzonDesbloqueos = new ColaSincronizada<>();
+    
+    //disco(p2): sistema de archivos, planificador de disco y avisos que deja el disco
+    private SistemaArchivos sistemaArchivos;
+    private PlanificadorDisco planificadorDisco;
+    private AreaIntercambio swap;
+    private final BuzonCiclos<AvisoDisco> avisosDisco = new BuzonCiclos<>();
     
     //almacena el proceso que actualmente ocupa la CPU (null si esta ociosa)
     private PCB enEjecucion;
@@ -89,6 +105,12 @@ public class Kernel implements ManejadorInterrupciones{
                 + " MB y vence en el ciclo " + p.getCicloLimite());
     }
 
+     //conecta el sistema de archivos, el planificador del disco local y el area de intercambio
+    public void conectarDisco(SistemaArchivos sistemaArchivos, PlanificadorDisco planificadorDisco, AreaIntercambio swap) {
+        this.sistemaArchivos = sistemaArchivos;
+        this.planificadorDisco = planificadorDisco;
+        this.swap = swap;
+    }
     
     //buzon para notificar que un proceso fue desbloqueado
     public void notificarDesbloqueo(PCB proceso) {
@@ -122,6 +144,20 @@ public class Kernel implements ManejadorInterrupciones{
         revisarDeadlines();       // limpia procesos vencidos o que ya no llegan a tiempo
         admitirNuevos();          // planificación a largo plazo
         planificar();             // planificación a corto plazo
+    }
+    
+    //AVISOS DEL DISCO (el disco corre en su propio hilo)
+
+    //el disco termino una solicitud: se deja el aviso y el kernel lo atiende en el ciclo siguiente
+    @Override
+    public void trabajoTerminado(TrabajoDisco trabajo, long ciclo) {
+        avisosDisco.enviar(new AvisoDisco((Solicitud) trabajo, false), ciclo);
+    }
+
+    //el disco saco de su cola una solicitud cancelada
+    @Override
+    public void trabajoCancelado(TrabajoDisco trabajo, long ciclo) {
+        avisosDisco.enviar(new AvisoDisco((Solicitud) trabajo, true), ciclo);
     }
     
     
@@ -497,10 +533,13 @@ public class Kernel implements ManejadorInterrupciones{
     public PCB[] getListos() { return listos.aArreglo(new PCB[listos.tamano()]); }
     public PCB[] getBloqueados() { return bloqueados.aArreglo(new PCB[bloqueados.tamano()]); }
     public PCB[] getTerminados() { return terminados.aArreglo(new PCB[terminados.tamano()]); }
+    public AreaIntercambio getSwap() { return swap; }
     public TipoPolitica getPolitica() { return planificador.getPolitica().getTipo(); }
     public MetricasComputador getMetricas() { return metricas; }
     public CPU getCpu() { return cpu; }
     public Memoria getMemoria() { return memoria; }
     public DispositivoES getDispositivo() { return dispositivo; }
+    public SistemaArchivos getSistemaArchivos() { return sistemaArchivos; }
+    public PlanificadorDisco getPlanificadorDisco() { return planificadorDisco; }
 }
 

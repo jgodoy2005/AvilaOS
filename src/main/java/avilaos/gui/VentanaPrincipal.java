@@ -1,6 +1,7 @@
 package avilaos.gui;
 
-import avilaos.config.ConfiguracionSimulacion;
+import avilaos.config.DatosSistemaArchivos;
+import avilaos.gui.PanelConfiguracion.DatosInicio;
 import avilaos.simulacion.FotoSimulacion;
 import avilaos.simulacion.ObservadorSimulacion;
 import avilaos.simulacion.Simulacion;
@@ -17,8 +18,6 @@ import javax.swing.JTabbedPane;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
-
-
 /*
  * Ventana principal: pestañas de Configuración, Simulación (Vista 2) y
  * Métricas. Observa a la simulación: en cada ciclo recibe un aviso desde el
@@ -34,12 +33,12 @@ public class VentanaPrincipal extends JFrame implements ObservadorSimulacion {
 
     public VentanaPrincipal() {
         super("AvilaOS");
-        pestanas.addTab("Configuración", new PanelConfiguracion(this::iniciarSimulacion));
+        pestanas.addTab("Configuracion", new PanelConfiguracion(this::iniciarSimulacion, this::estadoDelDisco));
         pestanas.addTab("Simulación", aviso(
-        "Configure e inicie una simulación en la pestaña Configuración."));
-pestanas.addTab("Métricas", aviso(
-        "Las métricas aparecen cuando hay una simulación."));
-add(pestanas, BorderLayout.CENTER);
+                "Configure e inicie una simulación en la pestaña Configuración."));
+        pestanas.addTab("Métricas", aviso(
+                "Las métricas aparecen cuando hay una simulación."));
+        add(pestanas, BorderLayout.CENTER);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -56,7 +55,7 @@ add(pestanas, BorderLayout.CENTER);
      * Crea una simulación nueva con la configuración dada (si había otra, la
      * detiene).
      */
-    private void iniciarSimulacion(ConfiguracionSimulacion config) {
+    private void iniciarSimulacion(DatosInicio datos) {
         if (simulacion != null) {
             int respuesta = JOptionPane.showConfirmDialog(this,
                     "Ya hay una simulación. ¿Detenerla y empezar una nueva?", "Reiniciar",
@@ -64,20 +63,17 @@ add(pestanas, BorderLayout.CENTER);
             if (respuesta != JOptionPane.YES_OPTION) {
                 return;
             }
-            simulacion.setObservador(null);
-            simulacion.detener();
-            simulacion = null;
         }
         Simulacion nueva;
         try {
-            nueva = new Simulacion(config, false);
+            nueva = reemplazarSimulacion(simulacion, datos);
         } catch (IllegalArgumentException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudo iniciar", JOptionPane.WARNING_MESSAGE);
-        return;
+            return;
         }
-        TipoPolitica[] politicas = new TipoPolitica[config.computadores().length];
+        TipoPolitica[] politicas = new TipoPolitica[datos.config().computadores().length];
         for (int i = 0; i < politicas.length; i++) {
-            politicas[i] = config.computadores()[i].politica();
+            politicas[i] = datos.config().computadores()[i].politica();
         }
         panelSimulacion = new PanelSimulacion(nueva, politicas);
         panelMetricas = new PanelMetricas(politicas.length);
@@ -88,6 +84,15 @@ add(pestanas, BorderLayout.CENTER);
         simulacion.iniciar(); // crea los hilos; queda en pausa
         refrescar(); // muestra el ciclo 0
         pestanas.setSelectedIndex(1);
+    }
+
+    static Simulacion reemplazarSimulacion(Simulacion anterior, DatosInicio datos) {
+        Simulacion candidata = new Simulacion(datos.config(), datos.disco(), datos.archivos(), false);
+        if (anterior != null) {
+            anterior.setObservador(null);
+            anterior.detener();
+        }
+        return candidata;
     }
 
     /*
@@ -120,6 +125,14 @@ add(pestanas, BorderLayout.CENTER);
         panelSimulacion.mostrar(foto);
         panelSimulacion.agregarEventos(simulacion.extraerEventos());
         panelMetricas.mostrar(foto);
+    }
+    
+    
+     // Estado del disco de la simulación actual, para reiniciar con otros procesos sin perder
+     // lo que se hizo en el sistema de archivos (null si no hay simulación).
+     
+    private DatosSistemaArchivos estadoDelDisco() {
+        return simulacion == null ? null : simulacion.exportarSistemaArchivos();
     }
 
     private void cerrar() {
