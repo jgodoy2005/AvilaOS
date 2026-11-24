@@ -19,7 +19,11 @@ public record FotoComputador(
     FotoPCB[] listos,
     FotoPCB[] bloqueados,
     FotoPCB[] terminados,
-    FotoMetricas metricas) {
+    FotoMetricas metricas,
+    FotoPCB[] listosSuspendidos,       //en el swap, listos para volver a la RAM
+    FotoPCB[] bloqueadosSuspendidos,   //en el swap, esperando su evento
+    int suspensiones,
+    int reactivaciones) {
 
     public int memoriaLibreMB() {
         return memoriaTotalMB - memoriaUsadaMB;

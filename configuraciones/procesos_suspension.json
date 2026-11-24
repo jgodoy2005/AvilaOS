@@ -1,0 +1,11 @@
+{
+  "globalConfig": {"cycleDurationMs": 300, "swapSizeBlocks": 100, "initialDiskPolicy": "FIFO"},
+  "computer": {"ramCapacity": 128, "policy": "FCFS", "quantum": 0},
+  "processes": [
+    {"name": "A", "memory": 32, "deadline": 900, "instructions": 2, "priority": 3, "targetPath": "/sistema/boot.bin", "operation": "READ"},
+    {"name": "B", "memory": 32, "deadline": 900, "instructions": 2, "priority": 8, "targetPath": "/sistema/core.dll", "operation": "READ"},
+    {"name": "C", "memory": 32, "deadline": 900, "instructions": 2, "priority": 8, "targetPath": "/usuarios/data.csv", "operation": "READ"},
+    {"name": "D", "memory": 32, "deadline": 900, "instructions": 2, "priority": 5, "targetPath": "/sistema/config.sys", "operation": "READ"},
+    {"name": "E", "memory": 64, "deadline": 900, "instructions": 2, "priority": 1, "targetPath": "/usuarios/video.mp4", "operation": "READ"}
+  ]
+}
