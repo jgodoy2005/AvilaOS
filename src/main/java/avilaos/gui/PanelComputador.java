@@ -25,10 +25,10 @@ import javax.swing.JTextArea;
 import javax.swing.SwingConstants;
 import javax.swing.border.TitledBorder;
 
-/**
+/*
  * Vista 2, la parte de UN computador: su CPU (proceso, PC, MAR, modo y uso
- * reciente), su memoria, su dispositivo de E/S, el mapa de estados y sus cuatro colas
- * con los datos del PCB de cada proceso. Se crea una instancia por computador.
+ * reciente), su memoria, su dispositivo de E/S, el mapa de estados y sus colas
+ * (también las de suspendidos) con los datos del PCB de cada proceso.
  */
 public class PanelComputador extends JPanel {
     private static final String[] COLUMNAS_COLA =
@@ -37,6 +37,8 @@ public class PanelComputador extends JPanel {
         {"Proceso", "Nombre", "Prio.", "Faltan", "PC", "Motivo"};
     private static final String[] COLUMNAS_TERMINADOS =
         {"Proceso", "Nombre", "Tipo", "Ejecutó", "Elementos", "Resultado"};
+    private static final String[] COLUMNAS_SUSPENDIDOS =
+        {"Proceso", "Nombre", "Prio.", "MB", "Faltan", "Situación"};
 
     private static final Color VERDE = new Color(200, 240, 200);
     private static final Color NARANJA = new Color(255, 225, 180);
@@ -61,11 +63,17 @@ public class PanelComputador extends JPanel {
     private final ModeloTabla<FotoPCB> listos = new ModeloTabla<>(COLUMNAS_COLA, this::valorCola);
     private final ModeloTabla<FotoPCB> bloqueados = new ModeloTabla<>(COLUMNAS_BLOQUEADOS, this::valorBloqueado);
     private final ModeloTabla<FotoPCB> terminados = new ModeloTabla<>(COLUMNAS_TERMINADOS, PanelComputador::valorTerminado);
+    private final ModeloTabla<FotoPCB> listosSuspendidos = new ModeloTabla<>(COLUMNAS_SUSPENDIDOS, PanelComputador::valorSuspendido);
+    private final ModeloTabla<FotoPCB> bloqueadosSuspendidos = new ModeloTabla<>(COLUMNAS_SUSPENDIDOS, PanelComputador::valorSuspendido);
 
+
+    
     private final TitledBorder bordeNuevos = BorderFactory.createTitledBorder("Nuevos");
     private final TitledBorder bordeListos = BorderFactory.createTitledBorder("Listos");
     private final TitledBorder bordeBloqueados = BorderFactory.createTitledBorder("Bloqueados");
     private final TitledBorder bordeTerminados = BorderFactory.createTitledBorder("Terminados");
+    private final TitledBorder bordeListosSuspendidos = BorderFactory.createTitledBorder("Listo/Suspendido");
+    private final TitledBorder bordeBloqueadosSuspendidos = BorderFactory.createTitledBorder("Bloqueado/Suspendido");
 
     private FotoPCB enEjecucion;
 
@@ -116,8 +124,10 @@ public class PanelComputador extends JPanel {
         Formato.filaCompacta(cpu, 7, "Dispositivo E/S:", dispositivo);
 
         cpu.setBorder(BorderFactory.createTitledBorder("CPU"));
-        mapa.setBorder(BorderFactory.createTitledBorder("Mapa de estados (mouse encima: detalle; doble clic: PCB)"));
+        mapa.setBorder(BorderFactory.createTitledBorder("Mapa de estados (L/S: Listo/Suspendido, B/S: Bloqueado/Suspendido; doble clic: PCB)"));
 
+
+        
         JPanel arriba = new JPanel(new BorderLayout(4, 4));
         arriba.add(barraPolitica, BorderLayout.NORTH);
         arriba.add(cpu, BorderLayout.CENTER);
@@ -128,11 +138,14 @@ public class PanelComputador extends JPanel {
         colas.add(tabla(nuevos, bordeNuevos, 2, 0));
         colas.add(tabla(listos, bordeListos, 3, 0));
         colas.add(tabla(bloqueados, bordeBloqueados, 3, 230));
+        colas.add(tabla(listosSuspendidos, bordeListosSuspendidos, 2, 200));
+        colas.add(tabla(bloqueadosSuspendidos, bordeBloqueadosSuspendidos, 2, 200));
         colas.add(tabla(terminados, bordeTerminados, 2, 0));
+        
 
         add(arriba, BorderLayout.NORTH);
         add(colas, BorderLayout.CENTER);
-        setPreferredSize(new Dimension(560, 800));
+        setPreferredSize(new Dimension(560, 960));
     }
 
     /** Dibuja la foto de este computador. Siempre en el hilo de Swing. */
@@ -180,11 +193,15 @@ public class PanelComputador extends JPanel {
         listos.setFilas(f.listos());
         bloqueados.setFilas(f.bloqueados());
         terminados.setFilas(f.terminados());
+        listosSuspendidos.setFilas(f.listosSuspendidos());
+        bloqueadosSuspendidos.setFilas(f.bloqueadosSuspendidos());
 
         bordeNuevos.setTitle("Nuevos (" + f.nuevos().length + ")");
         bordeListos.setTitle("Listos (" + f.listos().length + ") - en el orden de la política");
         bordeBloqueados.setTitle("Bloqueados (" + f.bloqueados().length + ")");
         bordeTerminados.setTitle("Terminados (" + f.terminados().length + ")");
+        bordeListosSuspendidos.setTitle("Listo/Suspendido (" + f.listosSuspendidos().length + ") - en el swap, listos para volver");
+        bordeBloqueadosSuspendidos.setTitle("Bloqueado/Suspendido (" + f.bloqueadosSuspendidos().length + ") - en el swap, esperando");
 
         repaint();
     }
@@ -260,6 +277,17 @@ public class PanelComputador extends JPanel {
             case 2 -> p.prioridad();
             case 3 -> p.deadlineRestante();
             case 4 -> p.pc();
+            default -> p.motivo();
+        };
+    }
+    
+     private static Object valorSuspendido(FotoPCB p, int columna) {
+        return switch (columna) {
+            case 0 -> p.etiqueta();
+            case 1 -> p.nombre();
+            case 2 -> p.prioridad();
+            case 3 -> p.memoriaMB();
+            case 4 -> p.deadlineRestante();
             default -> p.motivo();
         };
     }
