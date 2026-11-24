@@ -21,22 +21,25 @@ import javax.swing.ToolTipManager;
 import javax.swing.UIManager;
 
 /**
- * Mapa de estados de un computador: cinco columnas (Nuevos, En CPU, Listos, Bloqueados y
- * Terminados) con una ficha por proceso. Se redibuja con cada foto, así que un cambio de
- * estado se ve como una ficha que salta de columna. Pasando el mouse se ve el detalle; con
- * doble clic, el PCB completo.
+ * Mapa de estados de un computador: siete columnas (Nuevos, En CPU, Listos,
+ * Bloqueados, Listo/Suspendido, Bloqueado/Suspendido y Terminados) con una
+ * ficha por proceso. Se redibuja con cada foto, así que un cambio de estado se
+ * ve como una ficha que salta de columna. Pasando el mouse se ve el detalle;
+ * con doble clic, el PCB completo.
  */
 public class PanelEstados extends JComponent {
+
     private static final int FICHAS_POR_COLUMNA = 3;
     private static final int ALTO_FICHA = 22;
     private static final int SEPARACION = 4;
-    private static final String[] TITULOS = {"Nuevos", "En CPU", "Listos", "Bloqueados", "Terminados"};
+    private static final String[] TITULOS = {"Nuevos", "En CPU", "Listos", "Bloq.", "L/S", "B/S", "Term."};
 
     private static final Color NUEVO = new Color(222, 228, 238);
     private static final Color USUARIO = new Color(200, 240, 200);
     private static final Color SISTEMA = new Color(255, 225, 180);
     private static final Color LISTO = new Color(210, 225, 250);
     private static final Color BLOQUEADO = new Color(255, 214, 208);
+    private static final Color SUSPENDIDO = new Color(220, 215, 240);
     private static final Color COMPLETADO = new Color(214, 238, 214);
     private static final Color VENCIDO = new Color(232, 200, 200);
     private static final Color BORDE = new Color(150, 160, 175);
@@ -63,7 +66,7 @@ public class PanelEstados extends JComponent {
     public Dimension getPreferredSize() {
         Insets borde = getInsets();
         return new Dimension(520 + borde.left + borde.right,
-            22 + FICHAS_POR_COLUMNA * (ALTO_FICHA + SEPARACION) + 14 + borde.top + borde.bottom);
+                22 + FICHAS_POR_COLUMNA * (ALTO_FICHA + SEPARACION) + 14 + borde.top + borde.bottom);
     }
 
     public void mostrar(FotoComputador f) {
@@ -98,10 +101,11 @@ public class PanelEstados extends JComponent {
 
         dibujadas = 0;
         if (foto != null) {
-            FotoPCB[] enCpu = foto.enEjecucion() == null ? new FotoPCB[0] : new FotoPCB[] {foto.enEjecucion()};
-            FotoPCB[][] columnas = {foto.nuevos(), enCpu, foto.listos(), foto.bloqueados(), masRecientes(foto.terminados())};
-            int[] totales = {foto.nuevos().length, enCpu.length, foto.listos().length, foto.bloqueados().length, foto.terminados().length};
-
+            FotoPCB[] enCpu = foto.enEjecucion() == null ? new FotoPCB[0] : new FotoPCB[]{foto.enEjecucion()};
+            FotoPCB[][] columnas = {foto.nuevos(), enCpu, foto.listos(), foto.bloqueados(), foto.listosSuspendidos(),
+                foto.bloqueadosSuspendidos(), masRecientes(foto.terminados())};
+            int[] totales = {foto.nuevos().length, enCpu.length, foto.listos().length, foto.bloqueados().length,
+                foto.listosSuspendidos().length, foto.bloqueadosSuspendidos().length, foto.terminados().length};
             Insets borde = getInsets();
             g2.translate(borde.left, borde.top);
             int ancho = (getWidth() - borde.left - borde.right) / TITULOS.length;
@@ -121,12 +125,8 @@ public class PanelEstados extends JComponent {
         g2.setColor(texto);
         g2.drawString(TITULOS[columna] + " (" + total + ")", x + 6, 14);
 
-        if (columna < TITULOS.length - 1) {
-            int fx = x + ancho - 8;
-            g2.setColor(BORDE);
-            g2.drawLine(fx - 10, 10, fx, 10);
-            g2.fillPolygon(new int[] {fx, fx - 5, fx - 5}, new int[] {10, 6, 14}, 3);
-        }
+        g2.drawString(TITULOS[columna] + " (" + total + ")", x + 6, 14);
+        g2.setFont(base.deriveFont(10f));
 
         g2.setFont(base.deriveFont(11f));
         FontMetrics medidas = g2.getFontMetrics();
@@ -134,13 +134,13 @@ public class PanelEstados extends JComponent {
 
         for (int i = 0; i < cuantas; i++) {
             FotoPCB p = lista[i];
-            Rectangle r = new Rectangle(x + 4, 22 + i * (ALTO_FICHA + SEPARACION), ancho - 14, ALTO_FICHA);
+            Rectangle r = new Rectangle(x + 3, 22 + i * (ALTO_FICHA + SEPARACION), ancho - 8, ALTO_FICHA);
             g2.setColor(color(columna, p));
             g2.fillRoundRect(r.x, r.y, r.width, r.height, 10, 10);
             g2.setColor(BORDE);
             g2.drawRoundRect(r.x, r.y, r.width, r.height, 10, 10);
             g2.setColor(texto);
-            g2.drawString(recortar(textoFicha(columna, p), medidas, r.width - 10), r.x + 6, r.y + 15);
+            g2.drawString(recortar(textoFicha(columna, p), medidas, r.width - 6), r.x + 4, r.y + 15);
 
             zonas[dibujadas] = new Rectangle(r.x + borde.left, r.y + borde.top, r.width, r.height);
             fichas[dibujadas] = p;
@@ -164,28 +164,42 @@ public class PanelEstados extends JComponent {
 
     private Color color(int columna, FotoPCB p) {
         return switch (columna) {
-            case 0 -> NUEVO;
-            case 1 -> foto.modo() == ModoCPU.USUARIO ? USUARIO : SISTEMA;
-            case 2 -> LISTO;
-            case 3 -> BLOQUEADO;
-            default -> p.motivo().equals("Completado") ? COMPLETADO : VENCIDO;
+            case 0 ->
+                NUEVO;
+            case 1 ->
+                foto.modo() == ModoCPU.USUARIO ? USUARIO : SISTEMA;
+            case 2 ->
+                LISTO;
+            case 3 ->
+                BLOQUEADO;
+            case 4, 5 ->
+                SUSPENDIDO;
+            default ->
+                p.motivo().equals("Completado") ? COMPLETADO : VENCIDO;
         };
     }
 
     private static String textoFicha(int columna, FotoPCB p) {
-        if (columna == 3 && p.motivoBloqueo() != null) {
+        if ((columna == 3 || columna == 5) && p.motivoBloqueo() != null) {
             String donde = p.buffer().isEmpty() ? "" : " " + p.buffer();
             return p.etiqueta() + " " + switch (p.motivoBloqueo()) {
-                case ES -> "E/S";
-                case ES_DISCO -> "disco";
-                case RED -> "red" + donde;
-                case REGION_CRITICA -> "s" + donde;
-                case BUFFER_VACIO -> "n" + donde;
-                case BUFFER_LLENO -> "e" + donde;
+                case ES ->
+                    "E/S";
+                case ES_DISCO ->
+                    "disco";
+                case RED ->
+                    "red" + donde;
+                case REGION_CRITICA ->
+                    "s" + donde;
+                case BUFFER_VACIO ->
+                    "n" + donde;
+                case BUFFER_LLENO ->
+                    "e" + donde;
             };
         }
-        if (columna == 4 && !p.motivo().equals("Completado")) {
-            return p.etiqueta() + " venció";
+        if (columna == 6 && !p.motivo().equals("Completado")) {
+            return p.etiqueta()
+                    + (p.motivo().startsWith("Operación rechazada") ? " rechazado" : " venció");
         }
         return p.etiqueta();
     }
