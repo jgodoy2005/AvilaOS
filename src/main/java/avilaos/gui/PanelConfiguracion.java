@@ -6,12 +6,15 @@ package avilaos.gui;
 
 import avilaos.Limites;
 import avilaos.config.ArchivoConfiguracion;
+import avilaos.config.ConfiguracionDisco;
 import avilaos.config.ConfiguracionSimulacion;
 import avilaos.config.ConfiguracionSimulacion.ConfigBuffer;
 import avilaos.config.ConfiguracionSimulacion.ConfigComputador;
+import avilaos.config.DatosSistemaArchivos;
 import avilaos.estructuras.Accion;
 import avilaos.estructuras.ListaEnlazada;
 import avilaos.so.DatosProceso;
+import avilaos.so.archivos.EntradaFS;
 import avilaos.so.planificacion.TipoPolitica;
 import avilaos.so.sincronizacion.BufferAcotado;
 import java.awt.BorderLayout;
@@ -39,7 +42,16 @@ import javax.swing.table.AbstractTableModel;
  * @author erick
  */
 public class PanelConfiguracion extends JPanel {
+    
+    //lo necesario para crear una simulacion
+    public record DatosInicio(ConfiguracionSimulacion config, ConfiguracionDisco disco, EntradaFS[] archivos) {
+    }
 
+    //la ventana entrega el estado del disco de la simulacion actual (null si no hay ninguna)
+    public interface EstadoDelDisco {
+        DatosSistemaArchivos actual();
+    }
+    
     private final JSpinner cantidad = PanelSimulacion.spinner(Limites.COMPUTADORES_MIN,
             Limites.COMPUTADORES_MIN, Limites.COMPUTADORES_MAX, 1);
     private final JSpinner duracion = PanelSimulacion.spinner(500,
@@ -59,11 +71,14 @@ public class PanelConfiguracion extends JPanel {
                 "Deadline", "Instrucciones", "Buffer"},
             PanelConfiguracion::valorProceso);
     private final JTable tablaProcesos = new JTable(modeloProcesos);
-    private final Accion<ConfiguracionSimulacion> alIniciar;
+    //private final Accion<ConfiguracionSimulacion> alIniciar;
+    private final Accion<DatosInicio> alIniciar;
+    private final EstadoDelDisco estadoDelDisco;   //lo usa el sistema de archivos para reiniciar con el disco actual
 
-    public PanelConfiguracion(Accion<ConfiguracionSimulacion> alIniciar) {
+    public PanelConfiguracion(Accion<DatosInicio> alIniciar, EstadoDelDisco estadoDelDisco) {
         super(new BorderLayout(8, 8));
         this.alIniciar = alIniciar;
+        this.estadoDelDisco = estadoDelDisco;
         cantidad.setEnabled(false); //FIJAR EN 1, NO DEJAR CAMBIAR
 
         JPanel parametros = Formato.formulario();
@@ -176,7 +191,8 @@ public class PanelConfiguracion extends JPanel {
 
     private void iniciar() {
         try {
-            alIniciar.ejecutar(leer());
+            //se arranca con el disco por defecto y sin archivos
+            alIniciar.ejecutar(new DatosInicio(leer(), ConfiguracionDisco.porDefecto(), new EntradaFS[0]));
         } catch (IllegalArgumentException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(),
                     "Configuración inválida", JOptionPane.WARNING_MESSAGE);

@@ -6,6 +6,7 @@ package avilaos.cluster;
 
 import avilaos.hardware.CPU;
 import avilaos.hardware.ComponenteReloj;
+import avilaos.hardware.Disco;
 import avilaos.hardware.DispositivoES;
 import avilaos.hardware.Memoria;
 import avilaos.so.Kernel;
@@ -25,6 +26,7 @@ public class Computador implements ComponenteReloj {
     private final Memoria memoria; //ram del computador
     private final DispositivoES dispositivo = new DispositivoES(); //dispositivo ES (dma) de este computador
     private final Kernel kernel; //el so que maneja a este computador
+    private Disco disco; //disco local del computador (corre en su propio hilo)
 
     public Computador(int numero, int ramMB, TipoPolitica politicaInicial,
                       Parametros parametros, RegistroEventos registro) {
@@ -44,6 +46,15 @@ public class Computador implements ComponenteReloj {
         kernel.antesDeEjecutar(ciclo);     // el SO: red, desbloqueos, deadlines, admisión y despacho
         cpu.tic(ciclo);                    // la CPU ejecuta exactamente una instrucción (o despacha, o está ociosa)
         kernel.despuesDeEjecutar(ciclo);   // contabilidad del ciclo
+    }
+    
+    //conecta el disco local; el disco se registra aparte en el reloj porque tiene su propio hilo
+    public void conectarDisco(Disco disco) {
+        this.disco = disco;
+    }
+
+    public Disco getDisco() {
+        return disco;
     }
     
     public int getNumero() {
