@@ -26,21 +26,21 @@ import avilaos.so.disco.PlanificadorDisco;
 import avilaos.so.disco.Solicitud;
 import avilaos.so.planificacion.PoliticaPlanificacion;
 import avilaos.so.planificacion.TipoPolitica;
+
 /**
  *
  * @author juandiegogodoy
  * @author erick
  */
+public class Kernel implements ManejadorInterrupciones, ManejadorDisco {
 
-public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
-    
     //define el costo en ciclos de reloj el costo de cambiar el proceso
     private static final int COSTO_DESPACHO = 1;
-    
+
     //controla que los procesos que no puedan terminarse nisiquiera en el mejor de los casos a causa de su
     //ciclo limite (holgura), mueran o no 
     private static final boolean ABORTAR_SI_INALCANZABLE = true;
-    
+
     // componentes de hardware asignados a este nucleo y modulos auxiliares
     private final int numero;
     private final String nombre;
@@ -51,38 +51,49 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
     private final Parametros parametros;
     private final RegistroEventos registro;
     private final MetricasComputador metricas = new MetricasComputador();
-    
+
     // Colas para administrar el ciclo de vida de los procesos
     private final Cola<PCB> nuevos = new Cola<>();
     private final Cola<PCB> listos = new Cola<>();
     private final Cola<PCB> bloqueados = new Cola<>();
+    private final Cola<PCB> listosSuspendidos = new Cola<>();      // en el swap, listos para volver a la RAM (orden de llegada)
+    private final Cola<PCB> bloqueadosSuspendidos = new Cola<>();  // en el swap, esperando su evento
     private final Cola<PCB> terminados = new Cola<>();
     //buzon seguro donde otros computadores dejan aviso cuando despiertan a uno de los procesos
     private final ColaSincronizada<PCB> buzonDesbloqueos = new ColaSincronizada<>();
-    
+
     //disco(p2): sistema de archivos, planificador de disco y avisos que deja el disco
     private SistemaArchivos sistemaArchivos;
     private PlanificadorDisco planificadorDisco;
     private AreaIntercambio swap;
     private final BuzonCiclos<AvisoDisco> avisosDisco = new BuzonCiclos<>();
-    
+
+    //planificacion a mediano plazo: el proceso nuevo para el que se suspende (uno a la vez), la RAM
+    //que ya se le aparto y las suspensiones que faltan por escribirse en el swap
+    private final PlanificadorMedianoPlazo medianoPlazo = new PlanificadorMedianoPlazo();
+    private PCB beneficiario;
+    private int ramApartada;
+    private int suspensionesEnCurso;
+    private PCB sinVictimasAvisado;     // para avisar una sola vez que no se puede suspender a nadie
+    private int suspensiones;
+    private int reactivaciones;
+
     //almacena el proceso que actualmente ocupa la CPU (null si esta ociosa)
     private PCB enEjecucion;
 
     private long ciclo;
     private long secuenciaListos;   // numera las llegadas a listos, para desempatar por orden de llegada
 
-    
     //inicializa las referencias al hardware y configura la politica
     //con la que iniciara la planificacion de procesos
-    public Kernel(  int numero, 
-                    CPU cpu,    
-                    Memoria memoria, 
-                    DispositivoES dispositivo,
-                    PoliticaPlanificacion politicaInicial, 
-                    Parametros parametros, 
-                    RegistroEventos registro){
-        
+    public Kernel(int numero,
+            CPU cpu,
+            Memoria memoria,
+            DispositivoES dispositivo,
+            PoliticaPlanificacion politicaInicial,
+            Parametros parametros,
+            RegistroEventos registro) {
+
         this.numero = numero;
         this.nombre = "Computador " + numero;
         this.cpu = cpu;
@@ -92,10 +103,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         this.parametros = parametros;
         this.registro = registro;
     }
-    
-    
-   
-    
+
     //si un proceso nuevo entra en medio de un ciclo, entra a nuevos (de una vez) pero se marca
     //su creacion en el proximo ciclo.
     public void recibirProceso(PCB p) {
@@ -106,37 +114,37 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
                 + " MB y vence en el ciclo " + p.getCicloLimite());
     }
 
-     //conecta el sistema de archivos, el planificador del disco local y el area de intercambio
+    //conecta el sistema de archivos, el planificador del disco local y el area de intercambio
     public void conectarDisco(SistemaArchivos sistemaArchivos, PlanificadorDisco planificadorDisco, AreaIntercambio swap) {
         this.sistemaArchivos = sistemaArchivos;
         this.planificadorDisco = planificadorDisco;
         this.swap = swap;
     }
-    
+
     //buzon para notificar que un proceso fue desbloqueado
     public void notificarDesbloqueo(PCB proceso) {
         buzonDesbloqueos.encolar(proceso);
     }
-    
+
     //revisa el buzon de desbloqueos al inicio de un ciclo y pasa a listos a 
     //todos los procesos que fueron despertados
     private void atenderDesbloqueos() {
         Cola<PCB> despertados = buzonDesbloqueos.extraerTodos();
         while (!despertados.estaVacia()) {
             PCB p = despertados.desencolar();
-            
+
             // si el proceso ya no esta en estado BLOQUEADO, ignoramos el aviso
             if (p.getEstado() != EstadoProceso.BLOQUEADO) {
                 continue;
             }
-            
+
             bloqueados.eliminar(p);
             pasarAListos(p);
             registrar("Proceso " + p.etiqueta() + " despierta por un semSignal en el buffer "
                     + p.getBuffer().getNombre() + " y pasa a listos");
         }
     }
-    
+
     //antes de iniciar un ciclo, limpia vencidos, mete a memoria y le da la CPU a quien le toque
     public void antesDeEjecutar(long ciclo) {
         this.ciclo = ciclo;
@@ -144,12 +152,11 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         atenderDesbloqueos();     // despierta a los procesos que se acaban de desbloquear (los pasa a listos)
         atenderDisco();           // avisos del disco: aplica cada operacion y despierta a su proceso
         revisarDeadlines();       // limpia procesos vencidos o que ya no llegan a tiempo
-        admitirNuevos();          // planificación a largo plazo
+        administrarMemoria();     // planificación a mediano y largo plazo
         planificar();             // planificación a corto plazo
     }
-    
-    //AVISOS DEL DISCO (el disco corre en su propio hilo)
 
+    //AVISOS DEL DISCO (el disco corre en su propio hilo)
     //el disco termino una solicitud: se deja el aviso y el kernel lo atiende en el ciclo siguiente
     @Override
     public void trabajoTerminado(TrabajoDisco trabajo, long ciclo) {
@@ -161,10 +168,10 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
     public void trabajoCancelado(TrabajoDisco trabajo, long ciclo) {
         avisosDisco.enviar(new AvisoDisco((Solicitud) trabajo, true), ciclo);
     }
-    
-     //atiende los avisos de ciclos anteriores: el sistema de archivos aplica (o deshace) cada
-    //operacion y ocurre el evento que esperaba su proceso. Si un proceso debia terminar y ya no
-    //tiene nada pendiente en el disco, termina
+
+    //atiende los avisos de ciclos anteriores, en orden: operaciones de archivo, escrituras en el
+    //swap (suspender) y lecturas del swap (reactivar). Si un proceso debia terminar y ya no tiene
+    //nada pendiente en el disco, termina
     private void atenderDisco() {
         Cola<AvisoDisco> avisos = avisosDisco.recibirAnteriores(ciclo);
         while (!avisos.estaVacia()) {
@@ -172,10 +179,19 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
             Solicitud s = aviso.solicitud();
             PCB p = s.getProceso();
             if (p == null) {
-                continue;   //solicitud sin proceso (solo en las pruebas del disco): no hay a quien avisar
+                continue; // Solicitud de prueba sin proceso asociado.
             }
+
             p.contarSolicitudEnDisco(-1);
-            terminoOperacionArchivo(p, s, aviso.cancelada());
+            switch (s.getOperacion()) {
+                case SUSPENDER ->
+                    terminoSuspension(p, aviso.cancelada());
+                case REACTIVAR ->
+                    terminoReactivacion(p, aviso.cancelada());
+                default ->
+                    terminoOperacionArchivo(p, s, aviso.cancelada());
+            }
+
             if (p.getTerminacionPendiente() != null && p.getSolicitudesEnDisco() == 0
                     && p.getEstado() != EstadoProceso.TERMINADO) {
                 terminarPendiente(p, aviso.cancelada());
@@ -206,6 +222,8 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
 
     //ocurrio el evento que esperaba un proceso (fin de su E/S): si estaba bloqueado pasa a listos
     //(o termina si no le quedan instrucciones)
+    //ocurrio el evento que esperaba un proceso (fin de su E/S): si estaba bloqueado pasa a listos
+    //(o termina si no le quedan instrucciones); si estaba suspendido pasa a Listo/Suspendido
     private void ocurrioEvento(PCB p, String que) {
         if (p.getEstado() == EstadoProceso.BLOQUEADO) {
             bloqueados.eliminar(p);
@@ -216,7 +234,53 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
                 registrar(que + " y pasa a listos");
                 pasarAListos(p);
             }
+        } else if (p.getEstado() == EstadoProceso.BLOQUEADO_SUSPENDIDO) {
+            if (!p.haTerminadoInstrucciones()) {
+                bloqueadosSuspendidos.eliminar(p);
+                p.pasarAListoSuspendido();
+                listosSuspendidos.encolar(p);
+                registrar(que + "; está suspendido y pasa a Listo/Suspendido");
+            } else if (p.isEscribiendoSwap()) {
+                //termina cuando el disco acabe de escribir su imagen (esa RAM es del beneficiario)
+                p.marcarTerminacionPendiente(MotivoTerminacion.COMPLETADO, "terminó sus instrucciones");
+                registrar(que + "; no le quedan instrucciones y termina cuando acabe de escribirse en el swap");
+            } else {
+                bloqueadosSuspendidos.eliminar(p);
+                registrar(que + "; estaba suspendido y no le quedan instrucciones");
+                finalizar(p, MotivoTerminacion.COMPLETADO);
+            }
         }
+    }
+
+    //el disco termino de escribir la imagen de un suspendido: su RAM se libera y va al beneficiario
+    private void terminoSuspension(PCB p, boolean cancelada) {
+        p.setEscribiendoSwap(false);
+        suspensionesEnCurso--;
+        if (!cancelada) {   //si se cancelo, el proceso va a terminar y finalizar libera su RAM y su swap
+            memoria.liberar(p.getMemoriaMB());
+            p.setMemoriaAsignada(false);
+            registrar(p.etiqueta() + " queda en el swap (" + SistemaArchivos.bloques(p.getBloquesSwap().length) + ") y libera "
+                    + p.getMemoriaMB() + " MB" + (beneficiario != null ? " para " + beneficiario.etiqueta() : ""));
+            darRamAlBeneficiario(p.getMemoriaMB());
+        }
+        if (suspensionesEnCurso == 0 && beneficiario != null) {
+            soltarRamApartada();   //no le alcanzo (se cancelo alguna suspension): se vuelve a decidir
+        }
+    }
+
+    //el disco termino de leer la imagen del swap: se liberan esos bloques y el proceso pasa a listos
+    private void terminoReactivacion(PCB p, boolean cancelada) {
+        p.setLeyendoSwap(false);
+        if (cancelada || p.getTerminacionPendiente() != null) {
+            return;   //va a terminar: finalizar libera su RAM y su swap
+        }
+        int bloques = p.getBloquesSwap().length;
+        swap.liberar(p.getBloquesSwap());
+        p.setBloquesSwap(null);
+        listosSuspendidos.eliminar(p);
+        registrar(p.etiqueta() + " vuelve a la RAM (" + (bloques == 1 ? "se leyó 1 bloque" : "se leyeron " + bloques + " bloques")
+                + " del swap) y pasa a listos");
+        pasarAListos(p);
     }
 
     //debia terminar y ya no le quedan solicitudes en el disco: termina
@@ -225,13 +289,12 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         if (p.getTerminacionPendiente() != MotivoTerminacion.COMPLETADO) {
             registrar("Proceso " + p.etiqueta() + " terminado: " + p.getRazonTerminacion()
                     + (ultimaCancelada ? " (su solicitud se sacó de la cola del disco)"
-                                       : " (el disco ya la estaba atendiendo y la terminó)"));
+                            : " (el disco ya la estaba atendiendo y la terminó)"));
         }
         finalizar(p, p.getTerminacionPendiente());
     }
-    
+
     //control de operaciones remotas en cluster
-    
     //completar las operaciones de buffers remotos cuya latencia ya termino (terminaron su viaje)
     //se aplican sobre el buffer del anfitrion pero las ejecuta este kernel (emisor)
     private void completarOperacionesRemotas() {
@@ -261,24 +324,23 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
             }
         }
     }
-    
-    
-    
+
     //control de deadlines y aplicacion de holgura para ahorrar recursos de CPU
-    
     //recorre todas las colas del sistema (nuevos, listos, bloqueados y CPU)
     //separa en dos listas a los que deben morir para no modificar las colas mientras las recorre
     private void revisarDeadlines() {
         Cola<PCB> vencidos = new Cola<>();
         Cola<PCB> inalcanzables = new Cola<>();
-        
+
         nuevos.paraCada(p -> clasificar(p, vencidos, inalcanzables));
         listos.paraCada(p -> clasificar(p, vencidos, inalcanzables));
         bloqueados.paraCada(p -> clasificar(p, vencidos, inalcanzables));
+        listosSuspendidos.paraCada(p -> clasificar(p, vencidos, inalcanzables));
+        bloqueadosSuspendidos.paraCada(p -> clasificar(p, vencidos, inalcanzables));
         if (enEjecucion != null) {
             clasificar(enEjecucion, vencidos, inalcanzables);
         }
-        
+
         // Despues de revisar a todos, procede a sacarlos del sistema uno por uno
         while (!vencidos.estaVacia()) {
             abortarPorDeadline(vencidos.desencolar(), MotivoTerminacion.DEADLINE);
@@ -287,10 +349,10 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
             abortarPorDeadline(inalcanzables.desencolar(), MotivoTerminacion.INALCANZABLE);
         }
     }
-    
+
     //evalua si un proceso se paso de su tiempo o si la holgura dice que ya no llega
     private void clasificar(PCB p, Cola<PCB> vencidos, Cola<PCB> inalcanzables) {
-         if (p.getTerminacionPendiente() != null) {
+        if (p.getTerminacionPendiente() != null) {
             return;   // ya debe terminar: termina cuando el disco responda lo que tiene pendiente
         }
         if (ciclo >= p.getCicloLimite()) {
@@ -299,9 +361,8 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
             inalcanzables.encolar(p);
         }
     }
-    
+
     //CALCULOS PARA EL DEADLINE
-    
     //le pide los datos al PCB para calcular sus ciclos pendientes 
     private int ciclosMinimosParaTerminar(PCB p) {
         int pc = p.getPc();
@@ -311,7 +372,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         return ciclosMinimos(p.getTipo(), pc, p.getTotalInstrucciones(),
                 p.getCiclosEntreES(), p.getDuracionES(), p == enEjecucion);
     }
-    
+
     //calcula lo minimo que necesita un proceso para terminar suponiendo que nadie lo hace esperar(el mejor caso)
     //es publico y estatico para que la interfaz pueda usar la misma cuenta al crearlo
     public static int ciclosMinimos(TipoProceso tipo, int pc, int total, int cadaES, int duracionES, boolean enCPU) {
@@ -321,7 +382,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         int entradas = (restantes > 0 && !enCPU ? 1 : 0) + es - (terminaConES ? 1 : 0);
         return restantes + es * (Math.max(1, duracionES) - 1) + entradas * COSTO_DESPACHO;
     }
-    
+
     //cuenta cuantas E/S le quedan por solicitar segun en que instruccion (PC) va
     private static int esPendientes(TipoProceso tipo, int pc, int total, int cadaES) {
         if (tipo.usaBuffer() || cadaES <= 0) {
@@ -329,9 +390,8 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         }
         return total / cadaES - pc / cadaES;
     }
-    
+
     //LIBERACION DE RECURSOS SI UN PROCESO NO SE PODRA TERMINAR
-    
     //saca al proceso de la cola donde este, libera memoria/buffers y guarda la razon en el log
     private void abortarPorDeadline(PCB p, MotivoTerminacion motivo) {
         // Armamos el mensaje explicativo antes de sacarlo de CPU (si estaba ahi)
@@ -344,8 +404,8 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
                     + (es > 0 ? " y " + es + " E/S" : "") + ": necesita al menos " + ciclosMinimosParaTerminar(p)
                     + " ciclos y solo quedan " + p.getDeadlineRestante(ciclo) + ")";
         }
-        
-         //si tiene solicitudes en el disco (su operacion de archivo o su swap), primero se resuelven
+
+        //si tiene solicitudes en el disco (su operacion de archivo o su swap), primero se resuelven
         if (p.getSolicitudesEnDisco() > 0) {
             esperarAlDisco(p, motivo, porque);
             return;
@@ -355,23 +415,35 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         if (!sacarDeSuCola(p)) {
             return;
         }
-        
+
         //libera recursos consumidos y registra el evento
         String devuelto = p.getBuffer() != null ? p.getBuffer().liberarRecursos(p) : "";
         registrar("Proceso " + p.etiqueta() + " terminado: " + porque
                 + (p.getCicloPrimeraEjecucion() < 0 ? ", sin haber recibido la CPU" : "")
                 + (devuelto.isEmpty() ? "" : " (" + devuelto + ")"));
-        
+
         finalizar(p, motivo);
     }
-        
-     //saca al proceso de la cola donde este (o de la CPU) y cancela su E/S del dispositivo; false si ya termino
+
+    //saca al proceso de la cola donde este (o de la CPU) y cancela su E/S del dispositivo; false si ya termino
     private boolean sacarDeSuCola(PCB p) {
         switch (p.getEstado()) {
-            case NUEVO -> nuevos.eliminar(p);
-            case LISTO -> listos.eliminar(p);
-            case EJECUCION -> liberarCPU();
-            case BLOQUEADO -> bloqueados.eliminar(p);
+            case NUEVO -> {
+                nuevos.eliminar(p);
+                if (p == beneficiario) {
+                    soltarRamApartada();
+                }
+            }
+            case LISTO ->
+                listos.eliminar(p);
+            case EJECUCION ->
+                liberarCPU();
+            case BLOQUEADO ->
+                bloqueados.eliminar(p);
+            case LISTO_SUSPENDIDO ->
+                listosSuspendidos.eliminar(p);
+            case BLOQUEADO_SUSPENDIDO ->
+                bloqueadosSuspendidos.eliminar(p);
             default -> {
                 return false;
             }
@@ -389,8 +461,8 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         p.marcarTerminacionPendiente(motivo, porque);
         planificadorDisco.cancelar(p, ciclo);
         registrar("Proceso " + p.etiqueta() + ": " + porque + " mientras espera al disco; se pide sacar su solicitud de la cola");
-    }    
-        
+    }
+
     //despues de ejecutar actualiza las estadisticas de los que esperan y ordena segun la politica
     public void despuesDeEjecutar(long ciclo) {
         this.ciclo = ciclo;
@@ -399,29 +471,129 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         bloqueados.paraCada(PCB::contarCicloBloqueado);
         metricas.registrarCiclo(!cpu.isOciosa(), cpu.getModo());
     }
-    
-    
-    
+
+    //PLANIFICACION A MEDIANO Y LARGO PLAZO
+    //la RAM libre va primero a los Listo/Suspendido (en orden de llegada) y luego a los nuevos (en
+    //orden, entran todos los que caben); si el primer nuevo sigue sin caber, se suspende a bloqueados
+    private void administrarMemoria() {
+        reactivarSuspendidos();
+        admitirNuevos();
+        suspenderSiHaceFalta();
+    }
+
     //planificacion a largo plazo, se recorren los nuevos en orden, e ingresa a memoria a 
-    //todos los que quepan
+    //todos los que quepan (al beneficiario de una suspension ya se le aparto parte de la RAM)
     private void admitirNuevos() {
         for (PCB p : nuevos.aArreglo(new PCB[nuevos.tamano()])) {
-            if (memoria.reservar(p.getMemoriaMB())) {
-                nuevos.eliminar(p);
-                p.setMemoriaAsignada(true);
-                pasarAListos(p);
-                registrar(nombre + " admite a " + p.etiqueta() + " en memoria (" + p.getMemoriaMB()
-                        + " MB; quedan " + memoria.getLibreMB() + " MB libres) y pasa a listos");
+            int apartada = p == beneficiario ? ramApartada : 0;
+            if (memoria.reservar(p.getMemoriaMB() - apartada)) {
+                admitir(p, "");
             }
         }
     }
 
-      //manda una solicitud al disco a nombre de un proceso
+    //el proceso nuevo entra a la RAM (ya reservada) y pasa a listos
+    private void admitir(PCB p, String detalle) {
+        nuevos.eliminar(p);
+        if (p == beneficiario) {
+            beneficiario = null;
+            ramApartada = 0;
+        }
+        p.setMemoriaAsignada(true);
+        pasarAListos(p);
+        registrar(nombre + " admite a " + p.etiqueta() + " en memoria (" + p.getMemoriaMB() + " MB" + detalle
+                + "; quedan " + memoria.getLibreMB() + " MB libres) y pasa a listos");
+    }
+
+    //reactiva, en orden de llegada, a los Listo/Suspendido que quepan en la RAM libre: se les
+    //reserva la RAM y se pide al disco leer su imagen del swap
+    private void reactivarSuspendidos() {
+        for (PCB p : listosSuspendidos.aArreglo(new PCB[listosSuspendidos.tamano()])) {
+            if (p.isEscribiendoSwap() || p.isLeyendoSwap() || p.getTerminacionPendiente() != null) {
+                continue;   //su imagen no termina de escribirse, ya esta volviendo o va a terminar
+            }
+            if (memoria.reservar(p.getMemoriaMB())) {
+                p.setMemoriaAsignada(true);
+                p.setLeyendoSwap(true);
+                int[] bloques = p.getBloquesSwap();
+                reactivaciones++;
+                enviarAlDisco(p, new Solicitud(p, TipoOperacionES.REACTIVAR, "Reactivar " + p.etiqueta()
+                        + " (" + SistemaArchivos.bloques(bloques.length) + " de swap)", bloques));
+                registrar("Se reactiva al proceso " + p.etiqueta() + ": se le reservan " + p.getMemoriaMB()
+                        + " MB y se lee su imagen del swap");
+            }
+        }
+    }
+
+    //si el primer proceso nuevo no cabe, el planificador a mediano plazo elige bloqueados para
+    //suspender y la RAM libre de ahora queda apartada para el. Se atiende a un solo nuevo a la vez
+    private void suspenderSiHaceFalta() {
+        if (swap == null || nuevos.estaVacia() || beneficiario != null || suspensionesEnCurso > 0) {
+            return;
+        }
+        PCB candidato = nuevos.verPrimero();
+        int falta = candidato.getMemoriaMB() - memoria.getLibreMB();
+        PCB[] victimas = medianoPlazo.elegirVictimas(getBloqueados(), falta, swap.libres());
+        if (victimas == null) {
+            if (sinVictimasAvisado != candidato) {
+                sinVictimasAvisado = candidato;
+                registrar("No se puede admitir a " + candidato.etiqueta() + " (le faltan " + falta
+                        + " MB): ni suspendiendo a los bloqueados que caben en el swap se libera esa RAM");
+            }
+            return;
+        }
+        beneficiario = candidato;
+        ramApartada = memoria.getLibreMB();
+        memoria.reservar(ramApartada);
+        for (PCB v : victimas) {
+            suspender(v);
+        }
+    }
+
+    //Bloqueado -> Bloqueado/Suspendido: se reservan sus bloques en el swap y se pide al disco
+    //escribir su imagen; su RAM se libera cuando el disco termine
+    private void suspender(PCB v) {
+        int[] bloques = swap.reservar(v.etiqueta(), v.getMemoriaMB());
+        v.setBloquesSwap(bloques);
+        v.setEscribiendoSwap(true);
+        bloqueados.eliminar(v);
+        v.suspender();
+        bloqueadosSuspendidos.encolar(v);
+        suspensionesEnCurso++;
+        suspensiones++;
+        enviarAlDisco(v, new Solicitud(v, TipoOperacionES.SUSPENDER, "Suspender " + v.etiqueta()
+                + " (" + SistemaArchivos.bloques(bloques.length) + " de swap)", bloques));
+        registrar("Se suspende al proceso " + v.etiqueta() + " para admitir a " + beneficiario.etiqueta()
+                + " (prioridad " + v.getPrioridad() + ", bloqueado desde el ciclo " + v.getCicloBloqueo()
+                + "; escribe " + SistemaArchivos.bloques(bloques.length) + " en el swap)");
+    }
+
+    //la RAM que libero una suspension se aparta para el beneficiario; cuando completa la suya, entra
+    private void darRamAlBeneficiario(int liberada) {
+        if (beneficiario == null) {
+            return;
+        }
+        int toma = Math.min(liberada, beneficiario.getMemoriaMB() - ramApartada);
+        memoria.reservar(toma);
+        ramApartada += toma;
+        if (ramApartada == beneficiario.getMemoriaMB()) {
+            admitir(beneficiario, ", con la RAM que liberó la suspensión");
+        }
+    }
+
+    //el beneficiario ya no espera (termino o no le alcanzo): se devuelve la RAM que se le habia apartado
+    private void soltarRamApartada() {
+        memoria.liberar(ramApartada);
+        ramApartada = 0;
+        beneficiario = null;
+    }
+
+    //manda una solicitud al disco a nombre de un proceso
     private void enviarAlDisco(PCB p, Solicitud s) {
         p.contarSolicitudEnDisco(1);
         planificadorDisco.enviar(s, ciclo);
     }
-    
+
     //planificacion a corto plazo, revisa si hay que expulsar al que se esta ejecutando o
     //o si no hay nadie se lo da al primero de listos
     private void planificar() {
@@ -438,8 +610,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
             despachar(planificador.seleccionar(listos));
         }
     }
-    
-    
+
     //cambia la politica de planificacion, ordena segun la nueva politica y carga el registro para el log
     //se aplica a partir del proximo ciclo
     public void cambiarPolitica(TipoPolitica politica) {
@@ -450,7 +621,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         planificador.ordenar(listos);
         registro.registrar(ciclo + 1, nombre + " cambia su política de planificación a " + politica);
     }
-    
+
     //se le da la CPU a un proceso sumandole el costo del cambio de contexto
     private void despachar(PCB p) {
         p.pasarAEjecucion();
@@ -464,8 +635,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         cpu.desalojar();
         enEjecucion = null;
     }
-    
-    
+
     //cambia el estado de un proceso a listos y le asigna un numero en la secuencia
     private void pasarAListos(PCB p) {
         p.pasarAListos(++secuenciaListos);
@@ -478,24 +648,28 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         bloqueados.encolar(p);
     }
 
-    //termina un proceso, libera su memoria, lo manda a terminados y registra su razon 
-    //de terminacion, intent admitir otros para aprovechar el espacio nuevo
+    //termina un proceso, libera su memoria (y su swap si estaba suspendido), lo manda a terminados
+    //y registra su razon de terminacion; luego se reparte la RAM que quedo libre
     private void finalizar(PCB p, MotivoTerminacion motivo) {
         p.terminar(motivo, ciclo);
+        String libera = "";
         if (p.isMemoriaAsignada()) {
             memoria.liberar(p.getMemoriaMB());
             p.setMemoriaAsignada(false);
+            libera = " y libera " + p.getMemoriaMB() + " MB";
+        }
+        if (p.getBloquesSwap() != null) {
+            libera += (libera.isEmpty() ? " y libera " : " y ") + SistemaArchivos.bloques(p.getBloquesSwap().length) + " del swap";
+            swap.liberar(p.getBloquesSwap());
+            p.setBloquesSwap(null);
         }
         terminados.encolar(p);
         metricas.registrarTerminacion(p);
         if (motivo == MotivoTerminacion.COMPLETADO) {
-            registrar("Proceso " + p.etiqueta() + " terminó sus " + p.getTotalInstrucciones()
-                    + " instrucciones y libera " + p.getMemoriaMB() + " MB");
+            registrar("Proceso " + p.etiqueta() + " terminó sus " + p.getTotalInstrucciones() + " instrucciones" + libera);
         }
-        admitirNuevos();
+        administrarMemoria();
     }
-    
-    
 
     //indica que se completo una instruccion y revisa si termino
     //el proceso completo (si era la ultima instruccion)
@@ -510,7 +684,6 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         }
     }
 
-    
     //atiende las peticiones del proceso de ejecucion al sistema
     @Override
     public void llamadaAlSistema(long ciclo) {
@@ -518,7 +691,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         PCB p = enEjecucion;
         p.registrarEjecucion(ciclo);
         TipoInstruccion operacion = p.instruccionActual();
-        
+
         //operacion de archivo de un proceso de disco: el sistema de archivos la revisa y arma la
         //solicitud; el proceso se bloquea hasta que el disco termine, o termina si se rechaza
         if (operacion == TipoInstruccion.OPERACION_ARCHIVO) {
@@ -536,7 +709,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
             }
             return;
         }
-        
+
         //manejo de una llamada de E/S, se bloquea el proceso, se solicita al dispositivoES y se registra para el log
         if (operacion == TipoInstruccion.SOLICITAR_ES) {
             p.avanzarPc();
@@ -546,12 +719,11 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
             registrar("Proceso " + p.etiqueta() + " solicita E/S por " + p.getDuracionES() + " ciclos y se bloquea");
             return;
         }
-        
+
         //manejo de operaciones sobre el Buffer (productor/consumidor)
         BufferAcotado buffer = p.getBuffer();
         int latencia = parametros.getLatenciaRed();
-        
-        
+
         //si es remoto (latencia >0)
         if (buffer.getNumeroAnfitrion() != numero && latencia > 0) {
             p.iniciarOperacionRemota(operacion, latencia); //guarda la instruccion y fija la latencia
@@ -561,19 +733,16 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
                     + " de forma remota: " + operacion + " (latencia de " + latencia + " ciclos)");
             return; // interrumpe la ejecución local
         }
-        
-        
+
         //si es acceso local (o acceso remoto con latencia 0)
         MotivoBloqueo motivo = buffer.ejecutarOperacion(p, operacion);
-        
+
         //si fue una operacion de insertar o extraer se registra el progreso para el log
         if (operacion == TipoInstruccion.INSERTAR || operacion == TipoInstruccion.EXTRAER) {
             registrar("Proceso " + p.etiqueta() + " ejecuta " + operacion + " en " + buffer.getNombre()
                     + textoOcupacion(operacion, buffer));
         }
-        
-        
-        
+
         //si no pudo completarse la operacion, el proceso libera la CPU y se bloquea, se registra para el log
         if (motivo != null) {
             liberarCPU();
@@ -585,76 +754,133 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
             finalizar(p, MotivoTerminacion.COMPLETADO);
         }
     }
-    
-        //arma un mensaje para el registro cuando un proceso queda bloqueado en un semaforo del buffer
-        private void registrarBloqueo(PCB p, BufferAcotado buffer, MotivoBloqueo motivo) {
-            SemaforoSO semaforo;
-            String porque;
-            switch (motivo) {
-                case REGION_CRITICA -> { semaforo = buffer.getMutex(); porque = "región crítica ocupada"; }
-                case BUFFER_VACIO -> { semaforo = buffer.getLlenos(); porque = "buffer vacío"; }
-                default -> { semaforo = buffer.getVacios(); porque = "buffer lleno"; }
-            }
-            registrar("Proceso " + p.etiqueta() + " se bloquea en el semáforo '" + semaforo.getDescripcion() + "' ("
-                    + semaforo.getNombre() + ") del buffer " + buffer.getNombre() + ": " + porque);
-        }
 
-        
-        //si la operacion de buffer era añadir o extraer del buffer, devuelve la nueva ocupacion del buffer para el registro
-        private String textoOcupacion(TipoInstruccion operacion, BufferAcotado buffer) {
-            if (operacion != TipoInstruccion.INSERTAR && operacion != TipoInstruccion.EXTRAER) {
-                return "";
+    //arma un mensaje para el registro cuando un proceso queda bloqueado en un semaforo del buffer
+    private void registrarBloqueo(PCB p, BufferAcotado buffer, MotivoBloqueo motivo) {
+        SemaforoSO semaforo;
+        String porque;
+        switch (motivo) {
+            case REGION_CRITICA -> {
+                semaforo = buffer.getMutex();
+                porque = "región crítica ocupada";
             }
-            return " (" + buffer.getCantidad() + "/" + buffer.getCapacidad() + ")";
+            case BUFFER_VACIO -> {
+                semaforo = buffer.getLlenos();
+                porque = "buffer vacío";
+            }
+            default -> {
+                semaforo = buffer.getVacios();
+                porque = "buffer lleno";
+            }
         }
-    
+        registrar("Proceso " + p.etiqueta() + " se bloquea en el semáforo '" + semaforo.getDescripcion() + "' ("
+                + semaforo.getNombre() + ") del buffer " + buffer.getNombre() + ": " + porque);
+    }
+
+    //si la operacion de buffer era añadir o extraer del buffer, devuelve la nueva ocupacion del buffer para el registro
+    private String textoOcupacion(TipoInstruccion operacion, BufferAcotado buffer) {
+        if (operacion != TipoInstruccion.INSERTAR && operacion != TipoInstruccion.EXTRAER) {
+            return "";
+        }
+        return " (" + buffer.getCantidad() + "/" + buffer.getCapacidad() + ")";
+    }
+
     //interrupcion del dispositivo E/S indicando al sistema que termino
     @Override
     public void finDeES(ContextoEjecucion proceso, long ciclo) {
         this.ciclo = ciclo;
         PCB p = (PCB) proceso;   // todo lo que este kernel le pide al dispositivo es un PCB
-        if (p.getEstado() != EstadoProceso.BLOQUEADO) {
-            return;
+        if (p.getTerminacionPendiente() != null) {
+            return;              // va a terminar en cuanto el disco responda lo suyo
         }
-        bloqueados.eliminar(p);
-        registrar("Termina la E/S de " + p.etiqueta() + " (interrupción del dispositivo)");
-        if (p.haTerminadoInstrucciones()) {
-            finalizar(p, MotivoTerminacion.COMPLETADO);
-        } else {
-            pasarAListos(p);
-        }
+        ocurrioEvento(p, "Termina la E/S de " + p.etiqueta() + " (interrupción del dispositivo)");
     }
 
-    
-    
     //guarda los mensajes del kernel y los asocia con el ciclo en que se mandaron
     private void registrar(String mensaje) {
         registro.registrar(ciclo, mensaje);
     }
 
-    
-    
     // Procesos vivos en este computador, para poder ver cual esta mas 'libre'
     public int procesosActivos() {
-        return nuevos.tamano() + listos.tamano() + bloqueados.tamano() + (enEjecucion != null ? 1 : 0);
+        return nuevos.tamano() + listos.tamano() + bloqueados.tamano() + listosSuspendidos.tamano()
+                + bloqueadosSuspendidos.tamano() + (enEjecucion != null ? 1 : 0);
     }
 
-    
     // metodos para obtener datos del sistema
-    public int getNumero() { return numero; }
-    public String getNombre() { return nombre; }
-    public PCB getEnEjecucion() { return enEjecucion; }
-    public PCB[] getNuevos() { return nuevos.aArreglo(new PCB[nuevos.tamano()]); }
-    public PCB[] getListos() { return listos.aArreglo(new PCB[listos.tamano()]); }
-    public PCB[] getBloqueados() { return bloqueados.aArreglo(new PCB[bloqueados.tamano()]); }
-    public PCB[] getTerminados() { return terminados.aArreglo(new PCB[terminados.tamano()]); }
-    public AreaIntercambio getSwap() { return swap; }
-    public TipoPolitica getPolitica() { return planificador.getPolitica().getTipo(); }
-    public MetricasComputador getMetricas() { return metricas; }
-    public CPU getCpu() { return cpu; }
-    public Memoria getMemoria() { return memoria; }
-    public DispositivoES getDispositivo() { return dispositivo; }
-    public SistemaArchivos getSistemaArchivos() { return sistemaArchivos; }
-    public PlanificadorDisco getPlanificadorDisco() { return planificadorDisco; }
-}
+    public int getNumero() {
+        return numero;
+    }
 
+    public String getNombre() {
+        return nombre;
+    }
+
+    public PCB getEnEjecucion() {
+        return enEjecucion;
+    }
+
+    public PCB[] getNuevos() {
+        return nuevos.aArreglo(new PCB[nuevos.tamano()]);
+    }
+
+    public PCB[] getListos() {
+        return listos.aArreglo(new PCB[listos.tamano()]);
+    }
+
+    public PCB[] getBloqueados() {
+        return bloqueados.aArreglo(new PCB[bloqueados.tamano()]);
+    }
+
+    public PCB[] getTerminados() {
+        return terminados.aArreglo(new PCB[terminados.tamano()]);
+    }
+
+    public PCB[] getListosSuspendidos() {
+        return listosSuspendidos.aArreglo(new PCB[listosSuspendidos.tamano()]);
+    }
+
+    public PCB[] getBloqueadosSuspendidos() {
+        return bloqueadosSuspendidos.aArreglo(new PCB[bloqueadosSuspendidos.tamano()]);
+    }
+
+    public int getSuspensiones() {
+        return suspensiones;
+    }
+
+    public int getReactivaciones() {
+        return reactivaciones;
+    }
+
+    public AreaIntercambio getSwap() {
+        return swap;
+    }
+
+    public TipoPolitica getPolitica() {
+        return planificador.getPolitica().getTipo();
+    }
+
+    public MetricasComputador getMetricas() {
+        return metricas;
+    }
+
+    public CPU getCpu() {
+        return cpu;
+    }
+
+    public Memoria getMemoria() {
+        return memoria;
+    }
+
+    public DispositivoES getDispositivo() {
+        return dispositivo;
+    }
+
+    public SistemaArchivos getSistemaArchivos() {
+        return sistemaArchivos;
+    }
+
+    public PlanificadorDisco getPlanificadorDisco() {
+        return planificadorDisco;
+    }
+}

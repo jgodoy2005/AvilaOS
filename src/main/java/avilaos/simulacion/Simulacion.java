@@ -412,7 +412,11 @@ public final class Simulacion implements ObservadorReloj {
                 fotografiar(k.getListos(), ciclo),
                 fotografiar(k.getBloqueados(), ciclo),
                 fotografiar(k.getTerminados(), ciclo),
-                FotoMetricas.de(k.getMetricas()));
+                FotoMetricas.de(k.getMetricas()),
+                fotografiar(k.getListosSuspendidos(), ciclo),
+                fotografiar(k.getBloqueadosSuspendidos(), ciclo),
+                k.getSuspensiones(),
+                k.getReactivaciones());
     }
 
     //convierte una lista de procesos (los PCB de cada uno), a fotos de solo lectura
