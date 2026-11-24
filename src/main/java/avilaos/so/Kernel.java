@@ -18,6 +18,7 @@ import avilaos.hardware.ManejadorDisco;
 import avilaos.hardware.ManejadorInterrupciones;
 import avilaos.hardware.Memoria;
 import avilaos.hardware.TrabajoDisco;
+import avilaos.so.archivos.OperacionRechazada;
 import avilaos.so.archivos.SistemaArchivos;
 import avilaos.so.disco.AreaIntercambio;
 import avilaos.so.disco.AvisoDisco;
@@ -141,6 +142,7 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         this.ciclo = ciclo;
         completarOperacionesRemotas(); // primero procesar mensajes de red que ya completaron su tiempo de viaje (para poder tomar en cuenta bloqueados por red)
         atenderDesbloqueos();     // despierta a los procesos que se acaban de desbloquear (los pasa a listos)
+        atenderDisco();           // avisos del disco: aplica cada operacion y despierta a su proceso
         revisarDeadlines();       // limpia procesos vencidos o que ya no llegan a tiempo
         admitirNuevos();          // planificación a largo plazo
         planificar();             // planificación a corto plazo
@@ -160,6 +162,73 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         avisosDisco.enviar(new AvisoDisco((Solicitud) trabajo, true), ciclo);
     }
     
+     //atiende los avisos de ciclos anteriores: el sistema de archivos aplica (o deshace) cada
+    //operacion y ocurre el evento que esperaba su proceso. Si un proceso debia terminar y ya no
+    //tiene nada pendiente en el disco, termina
+    private void atenderDisco() {
+        Cola<AvisoDisco> avisos = avisosDisco.recibirAnteriores(ciclo);
+        while (!avisos.estaVacia()) {
+            AvisoDisco aviso = avisos.desencolar();
+            Solicitud s = aviso.solicitud();
+            PCB p = s.getProceso();
+            if (p == null) {
+                continue;   //solicitud sin proceso (solo en las pruebas del disco): no hay a quien avisar
+            }
+            p.contarSolicitudEnDisco(-1);
+            terminoOperacionArchivo(p, s, aviso.cancelada());
+            if (p.getTerminacionPendiente() != null && p.getSolicitudesEnDisco() == 0
+                    && p.getEstado() != EstadoProceso.TERMINADO) {
+                terminarPendiente(p, aviso.cancelada());
+            }
+        }
+    }
+
+    //el disco termino (o saco de la cola) la operacion de archivo de un proceso: el sistema de
+    //archivos la aplica (o deshace lo reservado) y ocurre el evento que el proceso esperaba
+    private void terminoOperacionArchivo(PCB p, Solicitud s, boolean cancelada) {
+        if (cancelada) {
+            sistemaArchivos.cancelar(s, ciclo);
+            return;
+        }
+        boolean aplicada = sistemaArchivos.completar(s, ciclo);
+        if (p.getTerminacionPendiente() != null) {
+            return;
+        }
+        if (aplicada) {
+            ocurrioEvento(p, "Termina la E/S de disco de " + p.etiqueta() + " (interrupción del disco)");
+        } else if (p.getSolicitudesEnDisco() > 0) {
+            esperarAlDisco(p, MotivoTerminacion.RECHAZADO, "el sistema de archivos rechazó la operación");
+        } else {
+            sacarDeSuCola(p);
+            finalizar(p, MotivoTerminacion.RECHAZADO);
+        }
+    }
+
+    //ocurrio el evento que esperaba un proceso (fin de su E/S): si estaba bloqueado pasa a listos
+    //(o termina si no le quedan instrucciones)
+    private void ocurrioEvento(PCB p, String que) {
+        if (p.getEstado() == EstadoProceso.BLOQUEADO) {
+            bloqueados.eliminar(p);
+            if (p.haTerminadoInstrucciones()) {
+                registrar(que);
+                finalizar(p, MotivoTerminacion.COMPLETADO);
+            } else {
+                registrar(que + " y pasa a listos");
+                pasarAListos(p);
+            }
+        }
+    }
+
+    //debia terminar y ya no le quedan solicitudes en el disco: termina
+    private void terminarPendiente(PCB p, boolean ultimaCancelada) {
+        sacarDeSuCola(p);
+        if (p.getTerminacionPendiente() != MotivoTerminacion.COMPLETADO) {
+            registrar("Proceso " + p.etiqueta() + " terminado: " + p.getRazonTerminacion()
+                    + (ultimaCancelada ? " (su solicitud se sacó de la cola del disco)"
+                                       : " (el disco ya la estaba atendiendo y la terminó)"));
+        }
+        finalizar(p, p.getTerminacionPendiente());
+    }
     
     //control de operaciones remotas en cluster
     
@@ -221,6 +290,9 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
     
     //evalua si un proceso se paso de su tiempo o si la holgura dice que ya no llega
     private void clasificar(PCB p, Cola<PCB> vencidos, Cola<PCB> inalcanzables) {
+         if (p.getTerminacionPendiente() != null) {
+            return;   // ya debe terminar: termina cuando el disco responda lo que tiene pendiente
+        }
         if (ciclo >= p.getCicloLimite()) {
             vencidos.encolar(p);
         } else if (ABORTAR_SI_INALCANZABLE && ciclo + ciclosMinimosParaTerminar(p) > p.getCicloLimite()) {
@@ -273,20 +345,15 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
                     + " ciclos y solo quedan " + p.getDeadlineRestante(ciclo) + ")";
         }
         
+         //si tiene solicitudes en el disco (su operacion de archivo o su swap), primero se resuelven
+        if (p.getSolicitudesEnDisco() > 0) {
+            esperarAlDisco(p, motivo, porque);
+            return;
+        }
+
         //remueve el proceso de la cola en la que se encuentre actualmente
-        switch (p.getEstado()) {
-            case NUEVO -> nuevos.eliminar(p);
-            case LISTO -> listos.eliminar(p);
-            case BLOQUEADO -> {
-                bloqueados.eliminar(p);
-                if (p.getMotivoBloqueo() == MotivoBloqueo.ES) {
-                    dispositivo.cancelar(p);
-                }
-            }
-            case EJECUCION -> liberarCPU();
-            default -> {
-                return;
-            }
+        if (!sacarDeSuCola(p)) {
+            return;
         }
         
         //libera recursos consumidos y registra el evento
@@ -298,7 +365,31 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         finalizar(p, motivo);
     }
         
-        
+     //saca al proceso de la cola donde este (o de la CPU) y cancela su E/S del dispositivo; false si ya termino
+    private boolean sacarDeSuCola(PCB p) {
+        switch (p.getEstado()) {
+            case NUEVO -> nuevos.eliminar(p);
+            case LISTO -> listos.eliminar(p);
+            case EJECUCION -> liberarCPU();
+            case BLOQUEADO -> bloqueados.eliminar(p);
+            default -> {
+                return false;
+            }
+        }
+        if (p.getMotivoBloqueo() == MotivoBloqueo.ES) {
+            dispositivo.cancelar(p);
+        }
+        return true;
+    }
+
+    //un proceso con solicitudes en el disco no termina de golpe: se pide sacarlas de la cola del
+    //disco; la que el disco ya este atendiendo se termina. El proceso termina cuando ya no le
+    //queda nada pendiente (atenderDisco)
+    private void esperarAlDisco(PCB p, MotivoTerminacion motivo, String porque) {
+        p.marcarTerminacionPendiente(motivo, porque);
+        planificadorDisco.cancelar(p, ciclo);
+        registrar("Proceso " + p.etiqueta() + ": " + porque + " mientras espera al disco; se pide sacar su solicitud de la cola");
+    }    
         
     //despues de ejecutar actualiza las estadisticas de los que esperan y ordena segun la politica
     public void despuesDeEjecutar(long ciclo) {
@@ -325,6 +416,12 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         }
     }
 
+      //manda una solicitud al disco a nombre de un proceso
+    private void enviarAlDisco(PCB p, Solicitud s) {
+        p.contarSolicitudEnDisco(1);
+        planificadorDisco.enviar(s, ciclo);
+    }
+    
     //planificacion a corto plazo, revisa si hay que expulsar al que se esta ejecutando o
     //o si no hay nadie se lo da al primero de listos
     private void planificar() {
@@ -421,6 +518,24 @@ public class Kernel implements ManejadorInterrupciones, ManejadorDisco{
         PCB p = enEjecucion;
         p.registrarEjecucion(ciclo);
         TipoInstruccion operacion = p.instruccionActual();
+        
+        //operacion de archivo de un proceso de disco: el sistema de archivos la revisa y arma la
+        //solicitud; el proceso se bloquea hasta que el disco termine, o termina si se rechaza
+        if (operacion == TipoInstruccion.OPERACION_ARCHIVO) {
+            p.avanzarPc();
+            liberarCPU();
+            try {
+                Solicitud s = sistemaArchivos.preparar(p, p.getOperacionArchivo());
+                bloquear(p, MotivoBloqueo.ES_DISCO);
+                enviarAlDisco(p, s);
+                registrar("Proceso " + p.etiqueta() + " pide al disco: " + s.descripcion() + " y se bloquea");
+            } catch (OperacionRechazada e) {
+                registrar("Se rechaza la operación de " + p.etiqueta() + " (" + p.getOperacionArchivo().descripcion()
+                        + "): " + e.getMessage());
+                finalizar(p, MotivoTerminacion.RECHAZADO);
+            }
+            return;
+        }
         
         //manejo de una llamada de E/S, se bloquea el proceso, se solicita al dispositivoES y se registra para el log
         if (operacion == TipoInstruccion.SOLICITAR_ES) {
