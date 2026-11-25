@@ -4,32 +4,33 @@
  */
 package avilaos.gui;
 
-import avilaos.simulacion.FotoBuffer;
+import avilaos.simulacion.FotoDisco;
 import avilaos.simulacion.FotoMetricas;
+import avilaos.simulacion.FotoPCB;
 import avilaos.simulacion.FotoSimulacion;
 import avilaos.so.MetricasComputador;
+import avilaos.so.MotivoTerminacion;
+import avilaos.so.disco.TipoPoliticaDisco;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import javax.swing.BorderFactory;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
-import javax.swing.JComboBox;
-import javax.swing.JLabel;
-import java.awt.CardLayout;
-import java.awt.Color;
-import java.awt.FlowLayout;
-import avilaos.simulacion.FotoPCB;
-import avilaos.so.MotivoTerminacion;
-import org.jfree.chart.labels.StandardPieSectionLabelGenerator;
-import org.jfree.chart.plot.PiePlot;
-import org.jfree.data.general.DefaultPieDataset;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
+import org.jfree.chart.labels.StandardPieSectionLabelGenerator;
+import org.jfree.chart.plot.PiePlot;
 import org.jfree.chart.plot.PlotOrientation;
+import org.jfree.data.general.DefaultPieDataset;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 
@@ -45,18 +46,26 @@ public class PanelMetricas extends JPanel {
     private record FilaMetricas(String nombre, FotoMetricas m) {
 
     }
+
+    //una fila con las metricas del disco y de la suspension
+    private record FilaDisco(FotoDisco disco, int suspensiones, int reactivaciones) {
+
+    }
+
     private static final String[] COLUMNAS = {"", "Throughput (por 100 ciclos)", "Utilización CPU", "Uso útil (usuario)", "Respuesta prom.", "Retorno prom.", "Espera prom.", "Deadlines cumplidos",
         "Equidad (Jain)", "Completados", "Abortados", "Murieron sin CPU"};
-    private static final String[] COLUMNAS_PC = {"Buffer", "Producidos",
-        "Consumidos",
-        "Procesos que lo usan", "Bloqueo prom. en semáforos (ciclos)"};
+    private static final String[] COLUMNAS_DISCO = {"Desplazamiento total (bloques)", "Espera prom. en la cola (ciclos)",
+        "Atendidas con FIFO", "Con SSTF", "Con SCAN", "Con C-SCAN", "Suspensiones", "Reactivaciones"};
     private static final int PUNTOS_VISIBLES = 600;
     private final ModeloTabla<FilaMetricas> modelo = new ModeloTabla<>(COLUMNAS, PanelMetricas::valor);
-    private final ModeloTabla<FotoBuffer> modeloPC = new ModeloTabla<>(COLUMNAS_PC, PanelMetricas::valorPC);
+    private final ModeloTabla<FilaDisco> modeloDisco = new ModeloTabla<>(COLUMNAS_DISCO, PanelMetricas::valorDisco);
     private final XYSeries[] series;
+    private final XYSeries[] seriesDisco = new XYSeries[TipoPoliticaDisco.values().length];   //una por politica de disco
+    private int puntosDisco;   //puntos de la serie del disco ya graficados
     private long ultimoCicloGraficado = 0; // el ciclo 0 no se grafica:todavía no pasó nada
-    //Lo que se puede ver abajo: la utilización en el tiempo o las causas de terminación
-    private static final String[] VISTAS = {"Utilización de la CPU en el tiempo", "Causas de terminación"};
+    //Lo que se puede ver abajo: el desplazamiento del cabezal, la utilización en el tiempo o las causas de terminación
+    private static final String[] VISTAS = {"Desplazamiento acumulado del cabezal", "Utilización de la CPU en el tiempo",
+        "Causas de terminación"};
     private final ModeloLista<String> modeloVista = new ModeloLista<>(VISTAS);
     private final CardLayout tarjetas = new CardLayout();
     private final JPanel zonaGraficas = new JPanel(tarjetas);
@@ -75,15 +84,15 @@ public class PanelMetricas extends JPanel {
         JScrollPane scrollTabla = new JScrollPane(tabla);
         scrollTabla.setBorder(BorderFactory.createTitledBorder(
                 "Por computador y del sistema completo"));
-        JTable tablaPC = new JTable(modeloPC);
-        tablaPC.setPreferredScrollableViewportSize(new Dimension(900, 4
-                * tablaPC.getRowHeight()));
-        JScrollPane scrollPC = new JScrollPane(tablaPC);
-        scrollPC.setBorder(BorderFactory.createTitledBorder("Productor-consumidor por buffer"));
+        JTable tablaDisco = new JTable(modeloDisco);
+        tablaDisco.setPreferredScrollableViewportSize(new Dimension(900, 2 * tablaDisco.getRowHeight()));
+        JScrollPane scrollDisco = new JScrollPane(tablaDisco);
+        scrollDisco.setBorder(BorderFactory.createTitledBorder("Disco y suspensión"));
         JPanel tablas = new JPanel(new GridLayout(2, 1, 6, 6));
         tablas.add(scrollTabla);
-        tablas.add(scrollPC);
-// Gráfica: una serie por computador, todas en el mismo gráfico
+        tablas.add(scrollDisco);
+
+        // Gráfica: una serie por computador, todas en el mismo gráfico
         XYSeriesCollection datos = new XYSeriesCollection();
         series = new XYSeries[cantidadComputadores];
         for (int i = 0; i < cantidadComputadores; i++) {
@@ -105,6 +114,21 @@ public class PanelMetricas extends JPanel {
         }
         ChartPanel panelGrafica = new ChartPanel(grafica);
         panelGrafica.setPreferredSize(new Dimension(900, 380));
+
+        // Desplazamiento acumulado del cabezal: una serie por política, para ver con cuál se recorrió cada tramo
+        XYSeriesCollection datosDisco = new XYSeriesCollection();
+        for (TipoPoliticaDisco p : TipoPoliticaDisco.values()) {
+            seriesDisco[p.ordinal()] = new XYSeries(p.toString());
+            datosDisco.addSeries(seriesDisco[p.ordinal()]);
+        }
+        JFreeChart graficaDisco = ChartFactory.createXYLineChart("Desplazamiento acumulado del cabezal",
+                "Ciclo", "Bloques recorridos", datosDisco, PlotOrientation.VERTICAL, true, true, false);
+        for (int i = 0; i < seriesDisco.length; i++) {
+            graficaDisco.getXYPlot().getRenderer().setSeriesPaint(i, colores[i % colores.length]);
+        }
+        ChartPanel panelDisco = new ChartPanel(graficaDisco);
+        panelDisco.setPreferredSize(new Dimension(900, 380));
+
         // Pasteles de causas de terminación: uno por computador y uno del sistema completo
         pasteles = new Pastel[cantidadComputadores + 1];
         int columnas = (int) Math.ceil(Math.sqrt(pasteles.length));
@@ -114,9 +138,11 @@ public class PanelMetricas extends JPanel {
             pasteles[i] = new Pastel(new DefaultPieDataset<>());
             panelPasteles.add(crearPastel(titulo, pasteles[i].datos()));
         }
+
         // Selector: cada vista es una "tarjeta" del CardLayout y solo se ve una
-        zonaGraficas.add(panelGrafica, VISTAS[0]);
-        zonaGraficas.add(panelPasteles, VISTAS[1]);
+        zonaGraficas.add(panelDisco, VISTAS[0]);
+        zonaGraficas.add(panelGrafica, VISTAS[1]);
+        zonaGraficas.add(panelPasteles, VISTAS[2]);
         JComboBox<String> selector = new JComboBox<>(modeloVista);
         selector.addActionListener(e -> tarjetas.show(zonaGraficas, (String) modeloVista.getSelectedItem()));
         JPanel barraVista = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -146,7 +172,9 @@ public class PanelMetricas extends JPanel {
         filas[filas.length - 1] = new FilaMetricas("Sistema completo",
                 f.global());
         modelo.setFilas(filas);
-        modeloPC.setFilas(f.buffers());
+        modeloDisco.setFilas(new FilaDisco[]{new FilaDisco(f.disco(), f.computadores()[0].suspensiones(),
+            f.computadores()[0].reactivaciones())});
+        graficarDisco(f.disco());
         if (f.ciclo() > ultimoCicloGraficado) { // cada ciclo se grafica una sola vez
             ultimoCicloGraficado = f.ciclo();
             for (int i = 0; i < series.length; i++) {
@@ -154,6 +182,24 @@ public class PanelMetricas extends JPanel {
             }
         }
         actualizarPasteles(f);
+    }
+
+    /**
+     * Agrega los puntos nuevos del desplazamiento acumulado. Cada punto va a la serie de la
+     * política con la que se recorrió; cuando la política cambia, el punto anterior también se
+     * agrega a la serie nueva para que la línea siga unida.
+     */
+    private void graficarDisco(FotoDisco d) {
+        long[] ciclos = d.serieCiclos();
+        long[] desplazamiento = d.serieDesplazamiento();
+        int[] politica = d.seriePolitica();
+        for (int i = puntosDisco; i < ciclos.length; i++) {
+            if (i > 0 && politica[i] != politica[i - 1]) {
+                seriesDisco[politica[i]].add(ciclos[i - 1], desplazamiento[i - 1]);
+            }
+            seriesDisco[politica[i]].add(ciclos[i], desplazamiento[i]);
+        }
+        puntosDisco = ciclos.length;
     }
 
     /**
@@ -260,18 +306,19 @@ public class PanelMetricas extends JPanel {
         };
     }
 
-    private static Object valorPC(FotoBuffer b, int columna) {
+    private static Object valorDisco(FilaDisco fila, int columna) {
+        FotoDisco d = fila.disco();
         return switch (columna) {
             case 0 ->
-                b.nombre();
+                d.desplazamientoTotal();
             case 1 ->
-                b.producidos();
-            case 2 ->
-                b.consumidos();
-            case 3 ->
-                b.procesosQueLoUsan();
+                Formato.decimal(d.esperaPromedio());
+            case 2, 3, 4, 5 ->
+                d.atendidasPorPolitica()[columna - 2];
+            case 6 ->
+                fila.suspensiones();
             default ->
-                Formato.decimal(b.bloqueoPromedio());
+                fila.reactivaciones();
         };
     }
 }
