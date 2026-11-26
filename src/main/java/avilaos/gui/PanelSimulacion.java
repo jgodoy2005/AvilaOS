@@ -27,6 +27,9 @@ import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.text.DefaultFormatter;
+import avilaos.so.ModoUsuario;
+import java.awt.Dimension;
+import javax.swing.JComboBox;
 
 /**
  *
@@ -45,10 +48,20 @@ public class PanelSimulacion extends JPanel {
     private final JButton pausar = new JButton("Pausar");
     private final JButton paso = new JButton("Avanzar 1 ciclo");
     private String[] nombresBuffers = new String[0];
+    private final JButton nuevoProceso = new JButton("Nuevo proceso…");
+    private final JSpinner quantum;
+    private final Runnable alCambiar;                   //muestra enseguida un cambio hecho en pausa
+    private final Sesion sesion = new Sesion();         //modo de usuario activo
+    private final ModeloLista<ModoUsuario> modeloModo = new ModeloLista<>(ModoUsuario.values());
+    private final ModeloLista<String> modeloUsuario;
+    private final JComboBox<String> selectorUsuario;
+    private final PanelDisco disco;
+    private final PanelArchivos archivos;
 
-    public PanelSimulacion(Simulacion simulacion, TipoPolitica[] politicasIniciales) {
+     public PanelSimulacion(Simulacion simulacion, TipoPolitica[] politicasIniciales, Runnable alCambiar) {
         super(new BorderLayout(6, 6));
         this.simulacion = simulacion;
+        this.alCambiar = alCambiar;
 // ----- Controles del reloj -----
         ciclo.setFont(ciclo.getFont().deriveFont(Font.BOLD, 20f));
         reanudar.addActionListener(e -> {
@@ -60,7 +73,7 @@ public class PanelSimulacion extends JPanel {
             actualizarBotones();
         });
         paso.addActionListener(e -> simulacion.avanzarUnCiclo());
-        JButton nuevoProceso = new JButton("Nuevo proceso…");
+      //  JButton nuevoProceso = new JButton("Nuevo proceso…");
       //  JButton nuevoBuffer = new JButton("Nuevo buffer…");
         nuevoProceso.addActionListener(e -> crearProceso());
      //   nuevoBuffer.addActionListener(e -> crearBuffer());
@@ -69,9 +82,14 @@ public class PanelSimulacion extends JPanel {
                 Limites.DURACION_CICLO_MAX_MS, 50);
         duracion.addChangeListener(e
                 -> simulacion.setDuracionCicloMs((Integer) duracion.getValue()));
-        JSpinner quantum = spinner(simulacion.getQuantum(),
+        quantum = spinner(simulacion.getQuantum(),
                 Limites.QUANTUM_MIN, Limites.QUANTUM_MAX, 1);
-        quantum.addChangeListener(e -> simulacion.setQuantum((Integer) quantum.getValue()));
+        quantum.addChangeListener(e -> {
+            if (sesion.esAdministrador()) {
+                simulacion.setQuantum((Integer) quantum.getValue());
+            }
+        });        
+        
  //       JSpinner latencia = spinner(simulacion.getLatenciaRed(),
    //             Limites.LATENCIA_MIN, Limites.LATENCIA_MAX, 1);
    //     latencia.addChangeListener(e -> simulacion.setLatenciaRed((Integer) latencia.getValue()));
@@ -91,24 +109,42 @@ public class PanelSimulacion extends JPanel {
         controles.add(nuevoProceso);
        // controles.add(nuevoBuffer);
 
+       // ----- Modo de uso: administrador o usuario (y cual) -----
+        modeloUsuario = new ModeloLista<>(simulacion.getUsuarios());
+        selectorUsuario = new JComboBox<>(modeloUsuario);
+        selectorUsuario.setEnabled(false);
+        JComboBox<ModoUsuario> selectorModo = new JComboBox<>(modeloModo);
+        selectorModo.addActionListener(e -> cambiarModo());
+        selectorUsuario.addActionListener(e -> cambiarModo());
+        controles.add(new JLabel("  Modo:"));
+        controles.add(selectorModo);
+        controles.add(selectorUsuario);
+        
 // ----- Un panel por computador -----
         computadores = new PanelComputador[politicasIniciales.length];
         JPanel fila = new JPanel(new GridLayout(1, computadores.length, 8,
                 0));
         for (int i = 0; i < computadores.length; i++) {
             computadores[i] = new PanelComputador(i + 1,
-                    politicasIniciales[i], simulacion);
+                    politicasIniciales[i], simulacion, sesion);
             fila.add(computadores[i]);
         }
         JScrollPane scrollComputadores = new JScrollPane(fila);
-        scrollComputadores.getVerticalScrollBar().setUnitIncrement(16);
-        scrollComputadores.getHorizontalScrollBar().setUnitIncrement(16);
-      //  JSplitPane abajo = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-      //          buffers, log);
-      //  abajo.setResizeWeight(0.55);
-        JSplitPane division = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                scrollComputadores, log);
-        division.setResizeWeight(0.8);
+        
+        // ----- Disco y sistema de archivos, a la derecha del computador -----
+        disco = new PanelDisco(simulacion, alCambiar, sesion);
+        archivos = new PanelArchivos(simulacion, sesion, alCambiar, disco::resaltar);
+        //izquierda: el computador y debajo el registro; derecha: el disco y debajo el sistema de archivos
+        log.setPreferredSize(new Dimension(560, 200));
+        JSplitPane izquierda = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scrollComputadores, log);
+        izquierda.setResizeWeight(0.75);
+        JSplitPane derecha = new JSplitPane(JSplitPane.VERTICAL_SPLIT, disco, archivos);
+        derecha.setResizeWeight(0.5);
+        izquierda.setMinimumSize(new Dimension(300, 200));
+        derecha.setMinimumSize(new Dimension(300, 200));
+        JSplitPane division = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, izquierda, derecha);
+        division.setResizeWeight(0.45);
+        division.setDividerLocation(590);   //el ancho del panel del computador
         resumen.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
         JPanel norte = new JPanel(new BorderLayout());
         norte.add(controles, BorderLayout.NORTH);
@@ -127,6 +163,8 @@ public class PanelSimulacion extends JPanel {
         for (int i = 0; i < computadores.length; i++) {
             computadores[i].mostrar(f.computadores()[i]);
         }
+        disco.mostrar(f.disco());
+        archivos.mostrar(f);
         buffers.mostrar(f.buffers());
         nombresBuffers = f.nombresBuffers();
         FotoMetricas g = f.global();
@@ -155,6 +193,9 @@ public class PanelSimulacion extends JPanel {
     }
 
     private void crearProceso() {
+         if (!sesion.esAdministrador()) {
+            return;
+        }
         DatosProceso datos = DialogoProceso.pedir(this, computadores.length,
                 nombresBuffers, true);
         if (datos == null) {
@@ -163,6 +204,7 @@ public class PanelSimulacion extends JPanel {
         try {
             String creado = simulacion.crearProceso(datos);
             estado.setText("Se creó " + creado);
+            alCambiar.run();
         } catch (IllegalArgumentException e) {
             JOptionPane.showMessageDialog(this, e.getMessage(), "No se pudo crear el proceso",
                     JOptionPane.WARNING_MESSAGE
@@ -191,6 +233,19 @@ public class PanelSimulacion extends JPanel {
                     JOptionPane.WARNING_MESSAGE
             );
         }
+    }
+    
+    //la misma sesión determina la cuenta de archivos y los controles habilitados
+    private void cambiarModo() {
+        ModoUsuario modo = (ModoUsuario) modeloModo.getSelectedItem();
+        sesion.cambiar(modo, (String) modeloUsuario.getSelectedItem());
+        selectorUsuario.setEnabled(modo == ModoUsuario.USUARIO);
+        sesion.actualizarControlAdministrativo(nuevoProceso, true);
+        sesion.actualizarControlAdministrativo(quantum, true);
+        for (PanelComputador computador : computadores) {
+            computador.actualizarPermisos();
+        }
+        disco.actualizarPermisos();
     }
 
     /**

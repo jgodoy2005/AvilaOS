@@ -47,8 +47,9 @@ public class VentanaPrincipal extends JFrame implements ObservadorSimulacion {
             }
         });
 
-        setSize(1280, 860);
+        setSize(1366, 860);
         setLocationRelativeTo(null);
+        setExtendedState(JFrame.MAXIMIZED_BOTH);   //el Proyecto 2 muestra computador, disco y archivos a la vez
     }
 
     /*
@@ -75,7 +76,7 @@ public class VentanaPrincipal extends JFrame implements ObservadorSimulacion {
         for (int i = 0; i < politicas.length; i++) {
             politicas[i] = datos.config().computadores()[i].politica();
         }
-        panelSimulacion = new PanelSimulacion(nueva, politicas);
+        panelSimulacion = new PanelSimulacion(nueva, politicas, this::refrescarAhora);
         panelMetricas = new PanelMetricas(politicas.length);
         pestanas.setComponentAt(1, panelSimulacion);
         pestanas.setComponentAt(2, panelMetricas);
@@ -126,11 +127,20 @@ public class VentanaPrincipal extends JFrame implements ObservadorSimulacion {
         panelSimulacion.agregarEventos(simulacion.extraerEventos());
         panelMetricas.mostrar(foto);
     }
-    
-    
-     // Estado del disco de la simulación actual, para reiniciar con otros procesos sin perder
-     // lo que se hizo en el sistema de archivos (null si no hay simulación).
-     
+
+    /*
+     * Hilo de Swing: muestra enseguida un cambio hecho desde la interfaz (por ejemplo con la
+     * simulación en pausa) sin esperar al próximo ciclo.
+     */
+    private void refrescarAhora() {
+        if (simulacion != null) {
+            simulacion.actualizarFoto();
+            refrescar();
+        }
+    }
+
+    // Estado del disco de la simulación actual, para reiniciar con otros procesos sin perder
+    // lo que se hizo en el sistema de archivos (null si no hay simulación).
     private DatosSistemaArchivos estadoDelDisco() {
         return simulacion == null ? null : simulacion.exportarSistemaArchivos();
     }

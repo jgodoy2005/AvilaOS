@@ -31,20 +31,23 @@ import javax.swing.border.TitledBorder;
  * (también las de suspendidos) con los datos del PCB de cada proceso.
  */
 public class PanelComputador extends JPanel {
-    private static final String[] COLUMNAS_COLA =
-        {"Proceso", "Nombre", "Tipo", "Prio.", "Espera", "MB", "Vence", "Faltan", "Restantes", "PC", "MAR"};
-    private static final String[] COLUMNAS_BLOQUEADOS =
-        {"Proceso", "Nombre", "Prio.", "Faltan", "PC", "Motivo"};
-    private static final String[] COLUMNAS_TERMINADOS =
-        {"Proceso", "Nombre", "Tipo", "Ejecutó", "Elementos", "Resultado"};
-    private static final String[] COLUMNAS_SUSPENDIDOS =
-        {"Proceso", "Nombre", "Prio.", "MB", "Faltan", "Situación"};
+
+    private static final String[] COLUMNAS_COLA
+            = {"Proceso", "Nombre", "Tipo", "Prio.", "Espera", "MB", "Vence", "Faltan", "Restantes", "PC", "MAR"};
+    private static final String[] COLUMNAS_BLOQUEADOS
+            = {"Proceso", "Nombre", "Prio.", "Faltan", "PC", "Motivo"};
+    private static final String[] COLUMNAS_TERMINADOS
+            = {"Proceso", "Nombre", "Tipo", "Ejecutó", "Elementos", "Resultado"};
+    private static final String[] COLUMNAS_SUSPENDIDOS
+            = {"Proceso", "Nombre", "Prio.", "MB", "Faltan", "Situación"};
 
     private static final Color VERDE = new Color(200, 240, 200);
     private static final Color NARANJA = new Color(255, 225, 180);
     private static final Color GRIS = new Color(225, 225, 225);
 
     private final TitledBorder borde;
+    private final Sesion sesion;
+    private final JComboBox<TipoPolitica> selectorPolitica;
     private final JLabel politicaEnUso = new JLabel();
     private final JLabel proceso = new JLabel("-");
     private final JLabel modo = new JLabel("Ociosa", SwingConstants.CENTER);
@@ -66,8 +69,6 @@ public class PanelComputador extends JPanel {
     private final ModeloTabla<FotoPCB> listosSuspendidos = new ModeloTabla<>(COLUMNAS_SUSPENDIDOS, PanelComputador::valorSuspendido);
     private final ModeloTabla<FotoPCB> bloqueadosSuspendidos = new ModeloTabla<>(COLUMNAS_SUSPENDIDOS, PanelComputador::valorSuspendido);
 
-
-    
     private final TitledBorder bordeNuevos = BorderFactory.createTitledBorder("Nuevos");
     private final TitledBorder bordeListos = BorderFactory.createTitledBorder("Listos");
     private final TitledBorder bordeBloqueados = BorderFactory.createTitledBorder("Bloqueados");
@@ -78,7 +79,12 @@ public class PanelComputador extends JPanel {
     private FotoPCB enEjecucion;
 
     public PanelComputador(int numero, TipoPolitica politicaInicial, Simulacion simulacion) {
+        this(numero, politicaInicial, simulacion, new Sesion());
+    }
+
+    PanelComputador(int numero, TipoPolitica politicaInicial, Simulacion simulacion, Sesion sesion) {
         super(new BorderLayout(4, 4));
+        this.sesion = sesion;
         borde = BorderFactory.createTitledBorder("Computador " + numero);
         borde.setTitleFont(borde.getTitleFont() == null ? new Font(Font.SANS_SERIF, Font.BOLD, 14)
                 : borde.getTitleFont().deriveFont(Font.BOLD, 14f));
@@ -87,16 +93,16 @@ public class PanelComputador extends JPanel {
         // Selector de política: el cambio rige desde el próximo ciclo
         ModeloLista<TipoPolitica> modeloPolitica = new ModeloLista<>(TipoPolitica.values());
         modeloPolitica.setSelectedItem(politicaInicial);
-        JComboBox<TipoPolitica> selector = new JComboBox<>(modeloPolitica);
-        selector.addActionListener(e -> {
-            if (simulacion != null) {
+         selectorPolitica = new JComboBox<>(modeloPolitica);
+        selectorPolitica.addActionListener(e -> {
+            if (simulacion != null && sesion.esAdministrador()) {
                 simulacion.cambiarPolitica(numero, (TipoPolitica) modeloPolitica.getSelectedItem());
             }
         });
 
         JPanel barraPolitica = new JPanel(new BorderLayout(6, 0));
         barraPolitica.add(new JLabel("Politica:"), BorderLayout.WEST);
-        barraPolitica.add(selector, BorderLayout.CENTER);
+        barraPolitica.add(selectorPolitica, BorderLayout.CENTER);
         barraPolitica.add(politicaEnUso, BorderLayout.EAST);
 
         // Procesador
@@ -126,8 +132,6 @@ public class PanelComputador extends JPanel {
         cpu.setBorder(BorderFactory.createTitledBorder("CPU"));
         mapa.setBorder(BorderFactory.createTitledBorder("Mapa de estados (L/S: Listo/Suspendido, B/S: Bloqueado/Suspendido; doble clic: PCB)"));
 
-
-        
         JPanel arriba = new JPanel(new BorderLayout(4, 4));
         arriba.add(barraPolitica, BorderLayout.NORTH);
         arriba.add(cpu, BorderLayout.CENTER);
@@ -141,14 +145,20 @@ public class PanelComputador extends JPanel {
         colas.add(tabla(listosSuspendidos, bordeListosSuspendidos, 2, 200));
         colas.add(tabla(bloqueadosSuspendidos, bordeBloqueadosSuspendidos, 2, 200));
         colas.add(tabla(terminados, bordeTerminados, 2, 0));
-        
 
         add(arriba, BorderLayout.NORTH);
         add(colas, BorderLayout.CENTER);
         setPreferredSize(new Dimension(560, 960));
+        actualizarPermisos();
     }
-
-    /** Dibuja la foto de este computador. Siempre en el hilo de Swing. */
+    
+    void actualizarPermisos() {
+        sesion.actualizarControlAdministrativo(selectorPolitica, true);
+    }
+    
+    /**
+     * Dibuja la foto de este computador. Siempre en el hilo de Swing.
+     */
     public void mostrar(FotoComputador f) {
         politicaEnUso.setText("en uso: " + f.politica());
         enEjecucion = f.enEjecucion();
@@ -229,7 +239,9 @@ public class PanelComputador extends JPanel {
         return panel;
     }
 
-    /** Todos los campos del PCB en una ventanita. */
+    /**
+     * Todos los campos del PCB en una ventanita.
+     */
     private void mostrarPCB(FotoPCB p) {
         String texto = "ID: " + p.id() + " (" + p.etiqueta() + ")\n"
                 + "Nombre: " + p.nombre() + "\n"
@@ -256,50 +268,79 @@ public class PanelComputador extends JPanel {
 
     private Object valorCola(FotoPCB p, int columna) {
         return switch (columna) {
-            case 0 -> p.etiqueta();
-            case 1 -> p.nombre();
-            case 2 -> p.tipo();
-            case 3 -> p.prioridad();
-            case 4 -> p.ciclosEsperando();
-            case 5 -> p.memoriaMB();
-            case 6 -> p.cicloLimite();
-            case 7 -> p.deadlineRestante();
-            case 8 -> p.instruccionesRestantes();
-            case 9 -> p.pc();
-            default -> p.mar();
+            case 0 ->
+                p.etiqueta();
+            case 1 ->
+                p.nombre();
+            case 2 ->
+                p.tipo();
+            case 3 ->
+                p.prioridad();
+            case 4 ->
+                p.ciclosEsperando();
+            case 5 ->
+                p.memoriaMB();
+            case 6 ->
+                p.cicloLimite();
+            case 7 ->
+                p.deadlineRestante();
+            case 8 ->
+                p.instruccionesRestantes();
+            case 9 ->
+                p.pc();
+            default ->
+                p.mar();
         };
     }
 
     private Object valorBloqueado(FotoPCB p, int columna) {
         return switch (columna) {
-            case 0 -> p.etiqueta();
-            case 1 -> p.nombre();
-            case 2 -> p.prioridad();
-            case 3 -> p.deadlineRestante();
-            case 4 -> p.pc();
-            default -> p.motivo();
+            case 0 ->
+                p.etiqueta();
+            case 1 ->
+                p.nombre();
+            case 2 ->
+                p.prioridad();
+            case 3 ->
+                p.deadlineRestante();
+            case 4 ->
+                p.pc();
+            default ->
+                p.motivo();
         };
     }
-    
-     private static Object valorSuspendido(FotoPCB p, int columna) {
+
+    private static Object valorSuspendido(FotoPCB p, int columna) {
         return switch (columna) {
-            case 0 -> p.etiqueta();
-            case 1 -> p.nombre();
-            case 2 -> p.prioridad();
-            case 3 -> p.memoriaMB();
-            case 4 -> p.deadlineRestante();
-            default -> p.motivo();
+            case 0 ->
+                p.etiqueta();
+            case 1 ->
+                p.nombre();
+            case 2 ->
+                p.prioridad();
+            case 3 ->
+                p.memoriaMB();
+            case 4 ->
+                p.deadlineRestante();
+            default ->
+                p.motivo();
         };
     }
 
     private static Object valorTerminado(FotoPCB p, int columna) {
         return switch (columna) {
-            case 0 -> p.etiqueta();
-            case 1 -> p.nombre();
-            case 2 -> p.tipo();
-            case 3 -> p.ciclosEjecutados() + " ciclos";
-            case 4 -> p.progresoElementos();
-            default -> p.motivo();
+            case 0 ->
+                p.etiqueta();
+            case 1 ->
+                p.nombre();
+            case 2 ->
+                p.tipo();
+            case 3 ->
+                p.ciclosEjecutados() + " ciclos";
+            case 4 ->
+                p.progresoElementos();
+            default ->
+                p.motivo();
         };
     }
 }
