@@ -91,14 +91,14 @@ public class PanelArchivos extends JPanel {
         JButton guardar = new JButton("Guardar JSON…");
         guardar.setToolTipText("Guarda el estado del sistema de archivos para cargarlo en otra ejecución");
         guardar.addActionListener(e -> guardar());
-        JPanel botones = new JPanel(new GridLayout(0, 1, 4, 4));
+        JPanel botones = new JPanel(new GridLayout(2, 3, 4, 4));
         for (JButton b : new JButton[] {crearArchivo, crearDirectorio, leer, renombrar, eliminar, guardar}) {
             botones.add(b);
         }
 
         JPanel detalle = new JPanel(new BorderLayout(4, 4));
         detalle.add(info, BorderLayout.NORTH);
-        detalle.add(botones, BorderLayout.SOUTH);
+       // detalle.add(botones, BorderLayout.SOUTH);
         JPanel izquierda = new JPanel(new BorderLayout(4, 4));
         izquierda.add(scrollArbol, BorderLayout.CENTER);
         izquierda.add(detalle, BorderLayout.EAST);
@@ -130,6 +130,7 @@ public class PanelArchivos extends JPanel {
         setBorder(BorderFactory.createTitledBorder("Sistema de archivos (seleccione un elemento y elija la operación)"));
         add(izquierda, BorderLayout.WEST);
         add(scrollTabla, BorderLayout.CENTER);
+        add(botones, BorderLayout.SOUTH);
         seleccionCambio();
     }
 

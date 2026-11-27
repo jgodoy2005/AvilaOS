@@ -16,13 +16,14 @@ import avilaos.so.disco.Solicitud;
 import java.util.concurrent.Semaphore;
 
 /**
- * Sistema de archivos jerárquico sobre el disco, con asignación encadenada: cada archivo
- * guarda su primer bloque y su cantidad, y cada bloque del disco guarda cuál es el siguiente.
+ * Sistema de archivos jerárquico sobre el disco, con asignación encadenada:
+ * cada archivo guarda su primer bloque y su cantidad, y cada bloque del disco
+ * guarda cuál es el siguiente.
  *
- * Las operaciones tienen dos mitades. Al ejecutarse la instrucción del proceso (preparar)
- * se revisa todo, se reservan los bloques y se arma la solicitud; cuando el disco termina
- * (completar) se aplica el cambio en el árbol. Todo ocurre en el hilo del kernel y el árbol
- * se protege con un semáforo.
+ * Las operaciones tienen dos mitades. Al ejecutarse la instrucción del proceso
+ * (preparar) se revisa todo, se reservan los bloques y se arma la solicitud;
+ * cuando el disco termina (completar) se aplica el cambio en el árbol. Todo
+ * ocurre en el hilo del kernel y el árbol se protege con un semáforo.
  */
 public class SistemaArchivos {
 
@@ -42,7 +43,6 @@ public class SistemaArchivos {
     }
 
     //USUARIOS
-
     //"admin" o user1..userN
     public boolean usuarioValido(String nombre) {
         if (ModoUsuario.CUENTA_ADMIN.equals(nombre)) {
@@ -66,7 +66,6 @@ public class SistemaArchivos {
     }
 
     //CARGA INICIAL (JSON del sistema de archivos)
-
     //crea el arbol y ocupa los bloques; junta todos los errores en un solo mensaje
     public void cargar(EntradaFS[] entradas) {
         StringBuilder errores = new StringBuilder();
@@ -97,8 +96,9 @@ public class SistemaArchivos {
         if (padre == null || !padre.esDirectorio()) {
             return "el directorio que lo contiene no existe (debe aparecer antes en el JSON)";
         }
-        if (padre.hijo(nombre, true) != null) {
-            return "está repetido";
+        String problemaNombre = revisarNombre(nombre, padre, null);
+        if (problemaNombre != null) {
+            return problemaNombre;
         }
         if (!usuarioValido(e.dueno())) {
             return "el dueño '" + e.dueno() + "' no existe (usuarios: admin y user1 a user" + usuarios + ")";
@@ -165,7 +165,6 @@ public class SistemaArchivos {
     }
 
     //BUSQUEDA
-
     public NodoFS buscar(String ruta) {
         mutex.acquireUninterruptibly();
         try {
@@ -202,13 +201,13 @@ public class SistemaArchivos {
         }
         return r;
     }
-    
-//PERMISOS
 
+//PERMISOS
     /**
-     * Para la interfaz en modo usuario: revisa el permiso antes de crear el proceso. Devuelve null
-     * si puede (o si la ruta ya no existe: eso lo resuelve el proceso al ejecutarse) o la razón.
-     * Para crear, la ruta es la del directorio donde se crea.
+     * Para la interfaz en modo usuario: revisa el permiso antes de crear el
+     * proceso. Devuelve null si puede (o si la ruta ya no existe: eso lo
+     * resuelve el proceso al ejecutarse) o la razón. Para crear, la ruta es la
+     * del directorio donde se crea.
      */
     public String puede(String usuario, TipoOperacionES operacion, String ruta) {
         mutex.acquireUninterruptibly();
@@ -221,8 +220,9 @@ public class SistemaArchivos {
     }
 
     /**
-     * Revisa si un usuario puede hacer una operación. Devuelve null si puede, o la razón del rechazo.
-     * Para crear, 'nodo' es el directorio donde se crea. Se llama con el árbol tomado.
+     * Revisa si un usuario puede hacer una operación. Devuelve null si puede, o
+     * la razón del rechazo. Para crear, 'nodo' es el directorio donde se crea.
+     * Se llama con el árbol tomado.
      */
     private String verificar(String usuario, TipoOperacionES operacion, NodoFS nodo) {
         if (ModoUsuario.CUENTA_ADMIN.equals(usuario)) {
@@ -282,10 +282,10 @@ public class SistemaArchivos {
     }
 
     //OPERACIONES (hilo del kernel)
-
     /**
-     * Primera mitad de una operación, cuando el proceso ejecuta su instrucción: revisa que se
-     * pueda hacer, reserva lo necesario y arma la solicitud para el disco.
+     * Primera mitad de una operación, cuando el proceso ejecuta su instrucción:
+     * revisa que se pueda hacer, reserva lo necesario y arma la solicitud para
+     * el disco.
      */
     public Solicitud preparar(PCB proceso, OperacionArchivo op) throws OperacionRechazada {
         mutex.acquireUninterruptibly();
@@ -313,7 +313,8 @@ public class SistemaArchivos {
             }
             Solicitud s;
             switch (op.operacion()) {
-                case LEER -> s = new Solicitud(proceso, TipoOperacionES.LEER, "Leer " + nodo.ruta(), cadenaDe(nodo));
+                case LEER ->
+                    s = new Solicitud(proceso, TipoOperacionES.LEER, "Leer " + nodo.ruta(), cadenaDe(nodo));
                 case ACTUALIZAR -> {
                     String nuevo = op.nombreNuevo();
                     if (nuevo != null) {
@@ -323,7 +324,7 @@ public class SistemaArchivos {
                         }
                     }
                     //renombrar escribe la cabecera del archivo, que esta en su primer bloque
-                    int[] cabecera = nodo.esDirectorio() ? new int[0] : new int[] {nodo.getPrimerBloque()};
+                    int[] cabecera = nodo.esDirectorio() ? new int[0] : new int[]{nodo.getPrimerBloque()};
                     s = new Solicitud(proceso, TipoOperacionES.ACTUALIZAR, "Actualizar " + nodo.ruta()
                             + (nuevo != null ? " a " + nuevo : " (sin nombre nuevo)"), cabecera);
                     s.setNombreNuevo(nuevo);
@@ -446,7 +447,8 @@ public class SistemaArchivos {
     }
 
     /**
-     * Aplica la solicitud terminada. Devuelve false si el cambio ya no puede hacerse.
+     * Aplica la solicitud terminada. Devuelve false si el cambio ya no puede
+     * hacerse.
      */
     public boolean completar(Solicitud s, long ciclo) {
         mutex.acquireUninterruptibly();
@@ -504,7 +506,8 @@ public class SistemaArchivos {
     }
 
     /**
-     * La solicitud se canceló antes de que el disco la empezara: se deshacen las reservas.
+     * La solicitud se canceló antes de que el disco la empezara: se deshacen
+     * las reservas.
      */
     public void cancelar(Solicitud s, long ciclo) {
         mutex.acquireUninterruptibly();
@@ -525,7 +528,8 @@ public class SistemaArchivos {
                     nodo.setEliminacionPendiente(false);
                     nodo.sumarPendiente(-1);
                 }
-                default -> nodo.sumarPendiente(-1);
+                default ->
+                    nodo.sumarPendiente(-1);
             }
         } finally {
             mutex.release();
@@ -551,7 +555,6 @@ public class SistemaArchivos {
     }
 
     //FOTOS Y GUARDADO
-
     public FotoNodo fotografiar() {
         mutex.acquireUninterruptibly();
         try {
@@ -636,7 +639,7 @@ public class SistemaArchivos {
     public static String bloques(int n) {
         return n == 1 ? "1 bloque" : n + " bloques";
     }
-    
+
     //"se libera 1 bloque" o "se liberan n bloques"
     private static String seLiberan(int n) {
         return (n == 1 ? "se libera " : "se liberan ") + bloques(n);

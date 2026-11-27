@@ -139,7 +139,8 @@ public class PanelSimulacion extends JPanel {
         JSplitPane izquierda = new JSplitPane(JSplitPane.VERTICAL_SPLIT, scrollComputadores, log);
         izquierda.setResizeWeight(0.75);
         JSplitPane derecha = new JSplitPane(JSplitPane.VERTICAL_SPLIT, disco, archivos);
-        derecha.setResizeWeight(0.5);
+        derecha.setResizeWeight(0.60);
+        derecha.setDividerLocation(380);
         izquierda.setMinimumSize(new Dimension(300, 200));
         derecha.setMinimumSize(new Dimension(300, 200));
         JSplitPane division = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, izquierda, derecha);

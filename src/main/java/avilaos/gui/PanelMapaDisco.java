@@ -27,7 +27,7 @@ import javax.swing.ToolTipManager;
  */
 public class PanelMapaDisco extends JComponent {
 
-    private static final int ALTO = 13;
+    private static final int ALTO = 10;
 
     private FotoDisco disco;
     private DireccionCabezal ultimoMovimiento;
@@ -61,7 +61,7 @@ public class PanelMapaDisco extends JComponent {
 
     private int columnas() {
         int total = disco == null ? 300 : disco.totalBloques();
-        return total <= 400 ? 25 : total <= 800 ? 40 : 50;
+        return total <= 800 ? 50 : 60;
     }
 
     @Override

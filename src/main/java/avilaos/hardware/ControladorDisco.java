@@ -18,5 +18,6 @@ public interface ControladorDisco {
 
     //el disco esta libre: ¿que hace en este ciclo?
     DecisionDisco siguiente(int cabezal, DireccionCabezal direccion, int ultimoBloque, long ciclo);
-
+    
+    void finalizarCiclo(long ciclo);
 }
