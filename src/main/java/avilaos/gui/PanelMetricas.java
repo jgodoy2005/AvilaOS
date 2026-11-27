@@ -154,7 +154,8 @@ public class PanelMetricas extends JPanel {
         JSplitPane division = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 tablas, zonaInferior);
 
-        division.setResizeWeight(0.4);
+        division.setResizeWeight(0.0);
+        division.setDividerLocation(220);
         setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
         add(division, BorderLayout.CENTER);
     }

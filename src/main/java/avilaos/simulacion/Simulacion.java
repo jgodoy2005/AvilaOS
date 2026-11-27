@@ -463,6 +463,17 @@ public final class Simulacion implements ObservadorReloj {
         }
     }
 
+    //vuelve a tomar la foto sin avanzar el reloj, para que la interfaz muestre enseguida un cambio
+    //hecho en pausa (detener el disco, mover el cabezal, crear un proceso)
+    public void actualizarFoto() {
+        reloj.tomarCandadoCiclo();
+        try {
+            ultimaFoto = construirFoto(reloj.getCiclo());
+        } finally {
+            reloj.soltarCandadoCiclo();
+        }
+    }
+    
     //obtiene la ultima foto capturada del sistema
     public FotoSimulacion getUltimaFoto() {
         reloj.tomarCandadoCiclo();

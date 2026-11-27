@@ -28,9 +28,10 @@ import javax.swing.SpinnerNumberModel;
 /**
  *
  * @author erick
- * 
-  El disco: política con su selector, velocidad del cabezal, botón para detenerlo, mapa de
- * bloques y cola de E/S (en orden de llegada) con la solicitud en curso.
+ *
+ * El disco: política con su selector, velocidad del cabezal, botón para
+ * detenerlo, mapa de bloques y cola de E/S (en orden de llegada) con la
+ * solicitud en curso.
  */
 public class PanelDisco extends JPanel {
 
@@ -105,7 +106,8 @@ public class PanelDisco extends JPanel {
 
         JTable tablaCola = new JTable(cola);
         tablaCola.setFillsViewportHeight(true);
-        tablaCola.setPreferredScrollableViewportSize(new Dimension(600, 3 * tablaCola.getRowHeight()));
+        tablaCola.setPreferredScrollableViewportSize(
+                new Dimension(600, 2 * tablaCola.getRowHeight()));
         tablaCola.getColumnModel().getColumn(2).setPreferredWidth(230);
         JScrollPane scrollCola = new JScrollPane(tablaCola);
         scrollCola.setBorder(BorderFactory.createTitledBorder("Cola de E/S del disco (en orden de llegada)"));
@@ -224,12 +226,18 @@ public class PanelDisco extends JPanel {
 
     private static Object valor(FotoSolicitud s, int columna) {
         return switch (columna) {
-            case 0 -> s.proceso();
-            case 1 -> s.operacion();
-            case 2 -> s.descripcion();
-            case 3 -> s.primerBloque() < 0 ? "-" : s.primerBloque();
-            case 4 -> s.cantidadBloques();
-            default -> s.cicloLlegada();
+            case 0 ->
+                s.proceso();
+            case 1 ->
+                s.operacion();
+            case 2 ->
+                s.descripcion();
+            case 3 ->
+                s.primerBloque() < 0 ? "-" : s.primerBloque();
+            case 4 ->
+                s.cantidadBloques();
+            default ->
+                s.cicloLlegada();
         };
     }
 }

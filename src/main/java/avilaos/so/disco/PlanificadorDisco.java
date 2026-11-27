@@ -15,15 +15,18 @@ import avilaos.hardware.ManejadorDisco;
 import avilaos.so.PCB;
 import avilaos.so.RegistroEventos;
 import java.util.concurrent.Semaphore;
+
 /**
  *
  * @author erick
- * 
- * Planificador de disco (parte del sistema operativo). Tiene la única cola de E/S del disco
- * y, cada vez que el disco queda libre, le pregunta a la política activa qué hacer.
  *
- * El kernel le manda solicitudes y cancelaciones por buzones con ciclo; el disco, desde su
- * hilo, las recibe al empezar cada ciclo (solo las de ciclos anteriores).
+ * Planificador de disco (parte del sistema operativo). Tiene la única cola de
+ * E/S del disco y, cada vez que el disco queda libre, le pregunta a la política
+ * activa qué hacer.
+ *
+ * El kernel le manda solicitudes y cancelaciones por buzones con ciclo; el
+ * disco, desde su hilo, las recibe al empezar cada ciclo (solo las de ciclos
+ * anteriores).
  */
 public class PlanificadorDisco implements ControladorDisco {
 
@@ -36,21 +39,19 @@ public class PlanificadorDisco implements ControladorDisco {
     private final BuzonCiclos<PCB> cancelaciones = new BuzonCiclos<>();
     private final MetricasDisco metricas = new MetricasDisco();
     private PoliticaDisco politica;
-    private TipoPoliticaDisco politicaCicloAnterior;
 
     public PlanificadorDisco(Disco disco, ManejadorDisco manejador, TipoPoliticaDisco inicial, RegistroEventos registro) {
         this.disco = disco;
         this.manejador = manejador;
         this.politica = inicial.crear();
-        this.politicaCicloAnterior = inicial;
+        metricas.registrarPunto(0, disco.getDesplazamiento(), inicial);
         this.registro = registro;
     }
 
     //DESDE EL HILO DEL KERNEL
-
     //manda una solicitud a la cola del disco; el disco la ve desde el ciclo siguiente
     public void enviar(Solicitud s, long ciclo) {
-        s.marcarLlegada(ciclo);
+        //s.marcarLlegada(ciclo);
         entrada.enviar(s, ciclo);
     }
 
@@ -60,19 +61,15 @@ public class PlanificadorDisco implements ControladorDisco {
     }
 
     //DESDE EL HILO DEL DISCO
-
     @Override
     public void recibir(long ciclo) {
-        if (ciclo > 0) {   //punto de la grafica con lo que recorrio el cabezal hasta el ciclo anterior
-            metricas.registrarPunto(ciclo - 1, disco.getDesplazamiento(), politicaCicloAnterior);
-        }
-        politicaCicloAnterior = politica.getTipo();
         Cola<Solicitud> nuevas = entrada.recibirAnteriores(ciclo);
         Cola<PCB> canceladas = cancelaciones.recibirAnteriores(ciclo);
         mutex.acquireUninterruptibly();
         try {
             while (!nuevas.estaVacia()) {
                 Solicitud s = nuevas.desencolar();
+                s.marcarLlegada(ciclo);
                 cola.agregarAlFinal(s);
                 registro.registrar(ciclo, "Llega a la cola del disco " + texto(s));
             }
@@ -109,8 +106,9 @@ public class PlanificadorDisco implements ControladorDisco {
                         registro.registrar(ciclo, "El cabezal llegó al extremo (bloque " + cabezal + ") y cambia de dirección");
                     }
                 }
-                case SALTAR_AL_INICIO -> registro.registrar(ciclo, "El cabezal llegó al bloque " + cabezal
-                        + " y salta al 0 (C-SCAN)");
+                case SALTAR_AL_INICIO ->
+                    registro.registrar(ciclo, "El cabezal llegó al bloque " + cabezal
+                            + " y salta al 0 (C-SCAN)");
                 default -> {
                 }
             }
@@ -120,13 +118,18 @@ public class PlanificadorDisco implements ControladorDisco {
         }
     }
 
+    @Override
+    public void finalizarCiclo(long ciclo) {
+        metricas.registrarPunto(ciclo, disco.getDesplazamiento(),
+                politica.getTipo());
+    }
+
     //"la solicitud de P3-H1: Leer /sistema/boot.bin" (o solo la descripcion si no tiene proceso)
     private static String texto(Solicitud s) {
         return s.getProceso() != null ? "la solicitud de " + s.etiqueta() + ": " + s.descripcion() : s.descripcion();
     }
 
     //DESDE LA INTERFAZ (con el candado del ciclo tomado)
-
     public void cambiarPolitica(TipoPoliticaDisco tipo, long ciclo) {
         mutex.acquireUninterruptibly();
         try {

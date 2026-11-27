@@ -53,11 +53,12 @@ public class Disco implements ComponenteReloj {
         for (int i = 0; i < total; i++) {
             this.bloques[i] = new Bloque(i, i >= bloquesArchivos);
         }
-        
+
         this.cabezal = cabezalInicial;
         this.direccion = direccionInicial;
         this.velocidad = velocidad;
     }
+
     // conecta el disco con el planificador de disco y con el kernel
     public void conectar(ControladorDisco controlador, ManejadorDisco manejador) {
         this.controlador = controlador;
@@ -68,24 +69,35 @@ public class Disco implements ComponenteReloj {
     @Override
     public void tic(long ciclo) {
         if (controlador != null) {
-            controlador.recibir(ciclo);   //solicitudes y cancelaciones de ciclos anteriores
+            controlador.recibir(ciclo);
         }
+
+        avanzarCiclo(ciclo);
+
+        if (controlador != null) {
+            controlador.finalizarCiclo(ciclo);
+        }
+    }
+
+    private void avanzarCiclo(long ciclo) {
         if (actual == null) {
             if (detenido || controlador == null) {
                 return;
             }
-            //el disco esta libre: el planificador decide (la decision no gasta el ciclo)
-            DecisionDisco d = controlador.siguiente(cabezal, direccion, getUltimoBloque(), ciclo);
+
+            DecisionDisco d = controlador.siguiente(
+                    cabezal, direccion, getUltimoBloque(), ciclo);
+
             switch (d.getTipo()) {
                 case ESPERAR -> {
                     return;
                 }
-                case SALTAR_AL_INICIO -> {   //C-SCAN: del extremo al bloque 0, un ciclo sin desplazamiento
+                case SALTAR_AL_INICIO -> {
                     cabezal = 0;
                     direccion = DireccionCabezal.ARRIBA;
                     return;
                 }
-                case MOVER -> {              //SCAN y C-SCAN: ir hasta el extremo sin atender a nadie
+                case MOVER -> {
                     direccion = d.getDireccion();
                     moverHacia(d.getDestino());
                     return;
@@ -97,9 +109,10 @@ public class Disco implements ComponenteReloj {
                 }
             }
         }
+
         trabajar(ciclo);
     }
-    
+
     //avanza el trabajo actual un ciclo
     private void trabajar(long ciclo) {
         int[] cadena = actual.bloques();
@@ -147,7 +160,6 @@ public class Disco implements ComponenteReloj {
     }
 
     //CONTROLES DEL USUARIO (se llaman con el candado del ciclo tomado)
-
     //detener: si hay un trabajo en curso, lo termina y luego se detiene
     public void detener() {
         if (actual == null) {
@@ -329,10 +341,24 @@ public class Disco implements ComponenteReloj {
         }
         this.velocidad = velocidad;
     }
-    
-    public TrabajoDisco getActual() { return actual; }
-    public int getBloquesHechos() { return actual == null ? 0 : indice; }
-    public boolean isDetenido() { return detenido; }
-    public boolean isDeteniendo() { return deteniendo; }
-    public long getDesplazamiento() { return desplazamiento; }
+
+    public TrabajoDisco getActual() {
+        return actual;
+    }
+
+    public int getBloquesHechos() {
+        return actual == null ? 0 : indice;
+    }
+
+    public boolean isDetenido() {
+        return detenido;
+    }
+
+    public boolean isDeteniendo() {
+        return deteniendo;
+    }
+
+    public long getDesplazamiento() {
+        return desplazamiento;
+    }
 }
